@@ -556,7 +556,10 @@ if (engine === 'chromium') {
 }
 
 // ======================= 10. Google Sheet sync =======================
-{
+// The fake Google server is plain http on localhost, which an https page may not call (mixed content),
+// so this section runs against a locally served copy of the app.
+if (BASE.startsWith('https:')) console.log('(sync: run against http://localhost; the fake Google server is plain http)');
+else {
   const g = createSheetServer(engine === 'webkit' ? 8791 : 8792);
   await g.listen();
   const until = async (fn, ms = 6000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await fn()) return true; await new Promise(r => setTimeout(r, 100)); } return false; };
