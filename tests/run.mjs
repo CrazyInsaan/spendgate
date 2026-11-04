@@ -240,6 +240,7 @@ const browser = await (engine === 'webkit' ? webkit : chromium).launch(
   await goAway(); await page.waitForTimeout(3300); await comeBack();
   await page.waitForTimeout(200);
   ok(await page.isVisible('#dlg-confirm'), 'pay: returning asks "did it go through?"');
+  eq(await page.evaluate(() => document.activeElement.id), 'confirm-yes', 'confirm prompt focuses the Yes button, not the keyboard');
   const txt = await page.textContent('#confirm-text');
   ok(txt.includes('₹250') && txt.includes('ravi@okaxis') && txt.includes('lunch with Ravi') && !txt.includes('didn\'t open'), 'confirm text describes the payment', txt);
   await page.fill('#confirm-amount', '260');
@@ -313,6 +314,7 @@ const browser = await (engine === 'webkit' ? webkit : chromium).launch(
   // edit
   await page.click('.tx:has-text("breakfast")');
   ok(await page.isVisible('#dlg-edit'), 'edit dialog opens');
+  eq(await page.evaluate(() => document.activeElement.id), 'e-save', 'edit dialog does not pop the keyboard on open');
   eq([await page.inputValue('#e-amount'), await page.inputValue('#e-note'), await page.inputValue('#e-date')], ['120', 'breakfast', '2026-11-04T09:00'], 'edit: fields prefilled');
   await page.fill('#e-amount', '');
   await page.click('#e-save');
