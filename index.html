@@ -104,6 +104,12 @@ dialog h3{margin:0 0 6px;font-size:19px}
 #scanner .frame{position:absolute;left:50%;top:45%;width:min(70vw,300px);aspect-ratio:1;transform:translate(-50%,-50%);border:3px solid rgba(255,255,255,.9);border-radius:20px;box-shadow:0 0 0 100vmax rgba(0,0,0,.4)}
 #scanner .bottom{position:absolute;left:0;right:0;bottom:0;padding:20px 16px calc(20px + env(safe-area-inset-bottom));display:flex;justify-content:center}
 #scanner .msg{position:absolute;top:calc(20px + env(safe-area-inset-top));left:16px;right:16px;color:#fff;text-align:center;font-weight:600}
+.steps{margin:0;padding-left:20px}
+.steps li{margin:0 0 10px}
+.steps a,.syncline,.hint a{color:var(--accent)}
+.btnlink{display:flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:12px;padding:13px 16px;font-weight:600;color:var(--ink);text-decoration:none;background:var(--bg)}
+.syncline{font-size:13px;margin:-6px 0 4px;font-weight:600}
+.syncline.warn{color:var(--warn)}
 .toast{position:fixed;left:50%;bottom:calc(90px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:14px;z-index:30;max-width:90vw}
 </style>
 </head>
@@ -158,6 +164,7 @@ dialog h3{margin:0 0 6px;font-size:19px}
 <!-- HISTORY -->
 <section id="view-history" hidden>
   <h1>History</h1>
+  <p class="syncline" id="sync-line"></p>
   <div id="history"></div>
 </section>
 
@@ -183,8 +190,37 @@ dialog h3{margin:0 0 6px;font-size:19px}
 <!-- DATA -->
 <section id="view-data" hidden>
   <h1>Your data</h1>
+  <p class="hint" id="data-intro" style="margin-top:0"></p>
+  <h2>Google Sheet backup</h2>
+  <div class="card">
+    <div id="sync-on" class="stack" hidden>
+      <p style="margin:0;font-weight:600" id="sync-status"></p>
+      <div class="scanbar">
+        <button type="button" id="btn-sync-now">Sync now</button>
+        <a class="btnlink" id="sheet-link" target="_blank" rel="noopener">Open sheet</a>
+      </div>
+      <button type="button" id="btn-restore">Restore missing entries from sheet</button>
+      <button type="button" class="ghost danger" id="btn-disconnect">Disconnect</button>
+    </div>
+    <div id="sync-off">
+      <p style="margin:0 0 8px"><b>One-time setup, about 5 minutes.</b> Steps 1–4 are easiest on a laptop. Open this same page there.</p>
+      <ol class="steps">
+        <li>Open <a href="https://sheets.new" target="_blank" rel="noopener">sheets.new</a> while signed in to Google. A new sheet opens. Name it <b>SpendGate</b>.</li>
+        <li>In the sheet, open <b>Extensions → Apps Script</b>. Delete the code that's there and paste the SpendGate script.
+          <div class="row" style="margin-top:8px;flex-wrap:wrap"><button type="button" class="small" id="btn-copy-script">Copy script</button>
+          <a class="small" href="https://github.com/CrazyInsaan/spendgate/blob/main/sheets-sync.gs" target="_blank" rel="noopener">or view it on GitHub</a></div></li>
+        <li>Click <b>Deploy → New deployment</b>, click the ⚙ next to "Select type" and choose <b>Web app</b>. Set <b>Execute as: Me</b> and <b>Who has access: Anyone</b>, then <b>Deploy</b>.</li>
+        <li>Google asks for permission. Pick your account, then <b>Advanced → Go to … (unsafe) → Allow</b>. It says "unsafe" only because Google hasn't reviewed your personal script; it can open just this one sheet.</li>
+        <li>Copy the <b>Web app URL</b>, get it onto your phone (AirDrop, Notes, or message yourself) and paste it here. Keep it private: anyone with it can read your sheet.</li>
+      </ol>
+      <label for="sync-url">Web app URL</label>
+      <input id="sync-url" inputmode="url" autocapitalize="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec">
+      <button type="button" class="primary" id="btn-connect" style="margin-top:10px">Connect</button>
+      <p class="missing" id="sync-msg"></p>
+    </div>
+  </div>
+  <h2>Files</h2>
   <div class="card stack">
-    <p style="margin:0">Everything is stored only on this device. iPhone can sometimes clear website data, so <b>export a backup now and then</b>.</p>
     <button type="button" id="btn-export-json">Export backup (.json)</button>
     <button type="button" id="btn-export-csv">Export for Excel / Sheets (.csv)</button>
     <button type="button" id="btn-import">Import backup</button>
@@ -443,14 +479,14 @@ form.addEventListener('submit', e => {
   const v = validate();
   if (!v.ok || !v.vpaOk) return;
   const entry = makeEntry('pending');
-  state.tx.unshift(entry); save();         // logged before the payment app opens
+  state.tx.unshift(entry); commit([entry.id]); // logged before the payment app opens
   resetForm(); renderAll();
   openPayment(entry);
 });
 $('#btn-logonly').onclick = () => {
   const entry = makeEntry('paid');
   if (!entry) return;
-  state.tx.unshift(entry); save();
+  state.tx.unshift(entry); commit([entry.id]);
   if (entry.payee && navigator.clipboard) navigator.clipboard.writeText(entry.payee).then(() => toast('Logged. UPI ID copied.'), () => toast('Logged'));
   else toast('Logged ' + inr(entry.amount));
   resetForm(); renderAll();
@@ -490,10 +526,10 @@ function askConfirm(id, maybeNotOpened) {
 $('#confirm-yes').onclick = () => {
   const t = state.tx.find(x => x.id === confirmId); if (!t) return;
   const a = parseAmount($('#confirm-amount').value); if (a) t.amount = a;
-  t.status = 'paid'; save(); $('#dlg-confirm').close(); renderAll(); toast('Saved ' + inr(t.amount));
+  t.status = 'paid'; commit([t.id]); $('#dlg-confirm').close(); renderAll(); toast('Saved ' + inr(t.amount));
 };
 $('#confirm-no').onclick = () => {
-  state.tx = state.tx.filter(x => x.id !== confirmId); save(); $('#dlg-confirm').close(); renderAll(); toast('Removed');
+  state.tx = state.tx.filter(x => x.id !== confirmId); commit([confirmId]); $('#dlg-confirm').close(); renderAll(); toast('Removed');
 };
 $('#confirm-later').onclick = () => { $('#dlg-confirm').close(); renderAll(); };
 $('#confirm-retry').onclick = () => {
@@ -634,11 +670,11 @@ $('#edit-form').addEventListener('submit', e => {
   if (!a || n.length < 2) { toast('Amount and reason are required'); return; }
   t.amount = a; t.note = n; t.category = editCat;
   const d = new Date($('#e-date').value); if (!isNaN(d)) t.ts = d.getTime();
-  save(); $('#dlg-edit').close(); renderAll();
+  commit([editId]); $('#dlg-edit').close(); renderAll();
 });
 $('#e-delete').onclick = () => {
   if (!confirm('Delete this expense?')) return;
-  state.tx = state.tx.filter(x => x.id !== editId); save(); $('#dlg-edit').close(); renderAll();
+  state.tx = state.tx.filter(x => x.id !== editId); commit([editId]); $('#dlg-edit').close(); renderAll();
 };
 $('#e-cancel').onclick = () => $('#dlg-edit').close();
 
@@ -704,20 +740,157 @@ $('#import-input').addEventListener('change', async e => {
   try {
     const data = JSON.parse(await f.text());
     if (!data || !Array.isArray(data.tx)) throw 0;
-    const have = new Set(state.tx.map(t => t.id)); let added = 0;
-    data.tx.forEach(t => {
-      if (!t || typeof t.id !== 'string' || have.has(t.id) || !parseAmount(t.amount) || !isFinite(t.ts)) return;
-      state.tx.push({
-        id: t.id, ts: Number(t.ts), amount: parseAmount(t.amount),
-        category: String(t.category || 'Other'), note: String(t.note || ''),
-        payee: String(t.payee || ''), payeeName: String(t.payeeName || ''), qrParams: String(t.qrParams || ''),
-        status: t.status === 'pending' ? 'pending' : 'paid', app: String(t.app || ''), merchant: !!t.merchant
-      });
-      have.add(t.id); added++;
-    });
-    save(); renderAll(); toast('Imported ' + added + ' new entr' + (added === 1 ? 'y' : 'ies'));
+    const added = mergeEntries(data.tx);
+    commit(added); renderAll(); toast('Imported ' + added.length + ' new entr' + (added.length === 1 ? 'y' : 'ies'));
   } catch (err) { toast('That file isn\'t a SpendGate backup'); }
 });
+
+// ---------- shared helpers for imported / restored entries ----------
+function normalizeTx(t) {
+  if (!t || typeof t.id !== 'string' || !t.id || !parseAmount(t.amount) || !isFinite(t.ts) || t.ts === '' || t.ts === null) return null;
+  return {
+    id: t.id, ts: Number(t.ts), amount: parseAmount(t.amount),
+    category: String(t.category || 'Other'), note: String(t.note || ''),
+    payee: String(t.payee || ''), payeeName: String(t.payeeName || ''), qrParams: String(t.qrParams || ''),
+    status: t.status === 'pending' ? 'pending' : 'paid', app: String(t.app || ''), merchant: !!t.merchant
+  };
+}
+// Adds entries this device doesn't have yet; returns their ids. Entries already here are left as they are.
+function mergeEntries(list) {
+  const have = new Set(state.tx.map(t => t.id)); const added = [];
+  (list || []).forEach(r => { const t = normalizeTx(r); if (t && !have.has(t.id)) { state.tx.push(t); have.add(t.id); added.push(t.id); } });
+  return added;
+}
+
+// ---------- Google Sheet sync ----------
+// The sheet is the long-term record. This device keeps a working copy plus `dirty`: the ids changed
+// since the last successful sync (id -> revision), so nothing is lost while offline or if a sync fails.
+if (!state.dirty || typeof state.dirty !== 'object') state.dirty = {};
+if (!state.rev) state.rev = 0;
+function commit(ids) {
+  ids.forEach(id => { state.dirty[id] = ++state.rev; });
+  save(); scheduleSync();
+}
+
+let syncing = false, syncTimer = null, syncError = '', retryDelay = 0, scriptText = '';
+function scheduleSync(delay) {
+  renderSync();
+  if (!state.syncUrl) return;
+  clearTimeout(syncTimer); syncTimer = setTimeout(syncNow, delay == null ? 800 : delay);
+}
+async function callSheet(body, url) {
+  // A plain-text body avoids a CORS preflight, which Apps Script web apps cannot answer.
+  const res = await fetch(url || state.syncUrl, { method: 'POST', body: JSON.stringify(body) });
+  const text = await res.text();
+  let data; try { data = JSON.parse(text); } catch (e) { throw new Error('not-json'); }
+  if (!data || !data.ok) throw new Error((data && data.error) || 'failed');
+  return data;
+}
+function syncErrorText(e) {
+  if (!navigator.onLine) return 'You\'re offline. Changes will sync when you\'re back online.';
+  if (e && e.message === 'not-json') return 'Google didn\'t accept the request. Check the deployment\'s "Who has access" is set to Anyone.';
+  if (e instanceof TypeError) return 'Couldn\'t reach Google. Will keep retrying.';
+  return 'Sync failed (' + (e && e.message || 'unknown') + '). Will keep retrying.';
+}
+async function syncNow() {
+  clearTimeout(syncTimer); syncTimer = null;
+  if (!state.syncUrl || syncing) return;
+  const ids = Object.keys(state.dirty);
+  if (!ids.length) { syncError = ''; renderSync(); return; }
+  syncing = true; renderSync();
+  const batch = ids.slice(0, 200), sent = {};
+  batch.forEach(id => { sent[id] = state.dirty[id]; });
+  const byId = new Map(state.tx.map(t => [t.id, t]));
+  const body = { action: 'sync', upserts: batch.filter(id => byId.has(id)).map(id => byId.get(id)), deletes: batch.filter(id => !byId.has(id)) };
+  try {
+    await callSheet(body);
+    // Only clear ids not changed again while this request was in flight.
+    batch.forEach(id => { if (state.dirty[id] === sent[id]) delete state.dirty[id]; });
+    state.lastSync = Date.now(); syncError = ''; retryDelay = 0; save();
+  } catch (e) {
+    syncError = syncErrorText(e);
+    retryDelay = Math.min(retryDelay ? retryDelay * 2 : 10000, 300000);
+  }
+  syncing = false;
+  if (!syncError && Object.keys(state.dirty).length) scheduleSync(0);
+  else if (syncError) scheduleSync(retryDelay);
+  else renderSync();
+}
+window.addEventListener('online', () => scheduleSync(0));
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && Object.keys(state.dirty).length) scheduleSync(0); });
+setInterval(() => { if (state.syncUrl && !syncing && Object.keys(state.dirty).length && !syncTimer) scheduleSync(0); }, 60000);
+
+function ago(ts) {
+  const s = Math.round((Date.now() - ts) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.round(s / 60) + ' min ago';
+  if (s < 86400) return Math.round(s / 3600) + ' h ago';
+  return new Date(ts).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+}
+function renderSync() {
+  const on = !!state.syncUrl, waiting = Object.keys(state.dirty).length;
+  $('#sync-on').hidden = !on; $('#sync-off').hidden = on;
+  let line;
+  if (!on) line = '⚠ Only on this phone. Set up Google Sheet backup in the Data tab.';
+  else if (syncing) line = 'Syncing to Google Sheet…';
+  else if (syncError) line = '⚠ ' + syncError + (waiting ? ' (' + waiting + ' change' + (waiting === 1 ? '' : 's') + ' waiting)' : '');
+  else if (waiting) line = waiting + ' change' + (waiting === 1 ? '' : 's') + ' waiting to sync…';
+  else line = '✓ Backed up to Google Sheet' + (state.lastSync ? ' · ' + ago(state.lastSync) : '');
+  $('#sync-status').textContent = line; $('#sync-line').textContent = line;
+  $('#sync-line').classList.toggle('warn', !on || !!syncError);
+  if (state.sheetUrl) $('#sheet-link').href = state.sheetUrl;
+  $('#sheet-link').hidden = !state.sheetUrl;
+  $('#data-intro').textContent = on
+    ? 'Your expenses are kept on this phone and copied to your Google Sheet, so they survive even if the phone loses its data.'
+    : 'Right now your expenses exist only on this phone. Connect a Google Sheet below so they\'re kept safely for years.';
+}
+
+function validSyncUrl(u) {
+  try {
+    const x = new URL(u);
+    const local = x.hostname === 'localhost' || x.hostname === '127.0.0.1';
+    return (x.protocol === 'https:' && x.hostname === 'script.google.com' || local) && /\/exec$/.test(x.pathname);
+  } catch (e) { return false; }
+}
+$('#btn-connect').onclick = async () => {
+  const url = $('#sync-url').value.trim(), msg = $('#sync-msg');
+  if (!validSyncUrl(url)) { msg.textContent = 'That isn\'t a Web app URL. It starts with https://script.google.com/ and ends with /exec.'; return; }
+  const btn = $('#btn-connect'); btn.disabled = true; msg.textContent = 'Connecting…';
+  try {
+    const info = await callSheet({ action: 'ping' }, url);
+    const remote = await callSheet({ action: 'list' }, url);
+    const restored = mergeEntries(remote.rows);
+    state.syncUrl = url; state.sheetUrl = info.sheetUrl || '';
+    state.tx.forEach(t => { state.dirty[t.id] = ++state.rev; }); // first sync uploads everything on this phone
+    save(); renderAll(); msg.textContent = ''; $('#sync-url').value = '';
+    toast(restored.length ? 'Connected. Restored ' + restored.length + ' from the sheet.' : 'Connected to ' + (info.name || 'your sheet'));
+    syncNow();
+  } catch (e) {
+    msg.textContent = e.message === 'not-json' ? 'Google didn\'t accept it. In the deployment, set "Execute as: Me" and "Who has access: Anyone", then try again.' : syncErrorText(e);
+  }
+  btn.disabled = false;
+};
+$('#btn-sync-now').onclick = () => { retryDelay = 0; syncNow(); };
+$('#btn-restore').onclick = async () => {
+  try {
+    const remote = await callSheet({ action: 'list' });
+    const added = mergeEntries(remote.rows);
+    save(); renderAll();
+    toast(added.length ? 'Restored ' + added.length + ' entr' + (added.length === 1 ? 'y' : 'ies') + ' from the sheet' : 'Nothing missing: this phone already has everything in the sheet');
+  } catch (e) { toast(syncErrorText(e)); }
+};
+$('#btn-disconnect').onclick = () => {
+  if (!confirm('Stop backing up to this Google Sheet? Your sheet and this phone\'s data are both kept.')) return;
+  delete state.syncUrl; delete state.sheetUrl; delete state.lastSync; state.dirty = {}; syncError = '';
+  save(); renderSync();
+};
+fetch('sheets-sync.gs').then(r => r.ok ? r.text() : '').then(t => { scriptText = t; }).catch(() => {});
+$('#btn-copy-script').onclick = () => {
+  if (!scriptText || !navigator.clipboard) { toast('Couldn\'t copy. Use the GitHub link instead.'); return; }
+  navigator.clipboard.writeText(scriptText).then(() => toast('Script copied'), () => toast('Couldn\'t copy. Use the GitHub link instead.'));
+};
+// Ask the browser not to clear this app's storage when space runs low.
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
 // ---------- tabs ----------
 function show(tab) {
@@ -732,12 +905,14 @@ document.querySelectorAll('nav.tabs button').forEach(b => b.onclick = () => show
 function renderAll() {
   renderBanner(); renderHistory(); renderSummary();
   const n = state.tx.length; $('#data-count').textContent = n + ' expense' + (n === 1 ? '' : 's') + ' stored on this device.';
+  renderSync();
 }
 
 // expose for testing
 window.__spendgate = { parseQR, buildPayUrl, handoffUrl };
 
 renderPayChips(); renderApps(); validate(); renderAll();
+scheduleSync(0);
 })();
 </script>
 </body>

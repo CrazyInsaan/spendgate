@@ -2,10 +2,12 @@
 import { webkit, chromium, devices } from 'playwright';
 import QRCode from 'qrcode';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
+import { createSheetServer } from './fake-google.mjs';
 
 const engine = process.argv[2] || 'webkit';
 const BASE = process.argv[3] || 'http://localhost:8765/';
-const SHOTS = new URL('./shots/', import.meta.url).pathname; fs.mkdirSync(SHOTS, { recursive: true });
+const SHOTS = fileURLToPath(new URL('./shots/', import.meta.url)); fs.mkdirSync(SHOTS, { recursive: true });
 const NOW = new Date('2026-11-04T15:00:00+05:30'); // Wednesday
 
 let pass = 0, fail = 0; const failures = [];
@@ -551,6 +553,149 @@ if (engine === 'chromium') {
   await ctx.close(); await camBrowser.close();
 } else {
   console.log('(live camera: headless WebKit never answers the camera permission prompt, so it is covered by the Chromium run)');
+}
+
+// ======================= 10. Google Sheet sync =======================
+{
+  const g = createSheetServer(engine === 'webkit' ? 8791 : 8792);
+  await g.listen();
+  const until = async (fn, ms = 6000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await fn()) return true; await new Promise(r => setTimeout(r, 100)); } return false; };
+  const byNote = note => g.rows().find(r => r[4] === note);
+
+  const dev = await newPage(browser);
+  const { page } = dev;
+  page.on('dialog', d => d.accept());
+  await tab(page, 'history');
+  ok((await page.textContent('#sync-line')).includes('Only on this phone'), 'sync: History warns when not backed up');
+  await tab(page, 'data');
+  ok(await page.isVisible('#sync-off') && await page.isHidden('#sync-on'), 'sync: setup steps shown before connecting');
+  const copied = await page.evaluate(async () => { let got = ''; navigator.clipboard.writeText = async t => { got = t; }; await new Promise(r => setTimeout(r, 300)); document.querySelector('#btn-copy-script').click(); await new Promise(r => setTimeout(r, 100)); return got; });
+  ok(copied.includes('function doPost') && copied.includes('@OnlyCurrentDoc'), 'sync: Copy script copies the real script');
+
+  // bad inputs
+  await page.fill('#sync-url', 'https://example.com/whatever');
+  await page.click('#btn-connect');
+  ok((await page.textContent('#sync-msg')).includes('isn\'t a Web app URL'), 'sync: wrong URL explained');
+  g.setMode('html');
+  await page.fill('#sync-url', g.url); await page.click('#btn-connect');
+  ok(await until(async () => (await page.textContent('#sync-msg')).includes('Who has access: Anyone')), 'sync: deployment not public explained');
+  g.setMode('down');
+  await page.click('#btn-connect');
+  ok(await until(async () => /reach Google|offline/.test(await page.textContent('#sync-msg'))), 'sync: unreachable explained');
+  ok(await page.isVisible('#sync-off'), 'sync: still not connected after failures');
+  g.setMode('up');
+
+  // existing entries upload on connect
+  await seed(page, [
+    { id: 's1', ts: T('2026-11-03T09:00:00+05:30'), amount: 120, category: 'Food', note: 'breakfast', payee: 'idli@ybl', payeeName: 'Idli Corner', status: 'paid' },
+    { id: 's2', ts: T('2026-11-04T10:00:00+05:30'), amount: 80, category: 'Transport', note: '=HYPERLINK("http://x","click")', status: 'paid' },
+  ]);
+  await tab(page, 'data');
+  await page.fill('#sync-url', g.url); await page.click('#btn-connect');
+  ok(await until(() => g.rows().length === 2), 'sync: connecting uploads existing entries', g.rows().length);
+  eq(g.header(), ['Date', 'Time', 'Amount', 'Category', 'Reason', 'Paid to', 'UPI ID', 'Status', 'App', 'Shop payment', 'ID', 'Timestamp', 'QR data', 'Last synced'], 'sync: sheet has readable headers');
+  const r1 = byNote('breakfast');
+  eq(r1 && [r1[2], r1[3], r1[5], r1[6], r1[7], r1[10], r1[11]], [120, 'Food', 'Idli Corner', 'idli@ybl', 'paid', 's1', T('2026-11-03T09:00:00+05:30')], 'sync: row fields correct');
+  ok(!!byNote('=HYPERLINK("http://x","click")'), 'sync: text that looks like a formula is stored as plain text');
+  ok(await until(async () => (await page.textContent('#sync-status')).startsWith('✓ Backed up')), 'sync: status shows backed up');
+  ok(await page.isVisible('#sheet-link') && (await page.getAttribute('#sheet-link', 'href')).includes('docs.google.com'), 'sync: Open sheet link');
+  await tab(page, 'history');
+  ok((await page.textContent('#sync-line')).startsWith('✓ Backed up'), 'sync: History shows backed up');
+
+  // new, edit, confirm, delete all reach the sheet
+  await tab(page, 'pay');
+  await fill(page, { amount: '45', note: 'chai', cat: 'Food' });
+  await page.click('#btn-logonly');
+  ok(await until(() => !!byNote('chai')), 'sync: new expense reaches the sheet');
+  await fill(page, { vpa: 'ravi@okaxis', amount: '300', note: 'movie', cat: 'Entertainment' });
+  await page.click('#btn-pay');
+  ok(await until(() => byNote('movie') && byNote('movie')[7] === 'pending'), 'sync: unconfirmed payment saved to sheet as pending');
+  await page.waitForTimeout(3300);
+  if (await page.isVisible('#dlg-confirm')) await page.click('#confirm-yes');
+  ok(await until(() => byNote('movie') && byNote('movie')[7] === 'paid'), 'sync: confirming updates the same row');
+  await tab(page, 'history');
+  await page.click('.tx:has-text("breakfast")');
+  await page.fill('#e-amount', '135'); await page.click('#e-save');
+  ok(await until(() => byNote('breakfast') && byNote('breakfast')[2] === 135), 'sync: edit updates the row');
+  eq(g.rows().filter(r => r[10] === 's1').length, 1, 'sync: edit does not duplicate the row');
+  await page.click('.tx:has-text("chai")'); await page.click('#e-delete');
+  ok(await until(() => !byNote('chai')), 'sync: delete removes the row');
+  const rowsNow = g.rows().length;
+
+  // offline: changes wait, survive a restart, then sync
+  g.setMode('down');
+  await tab(page, 'pay');
+  await fill(page, { amount: '60', note: 'offline 1', cat: 'Food' }); await page.click('#btn-logonly');
+  await fill(page, { amount: '70', note: 'offline 2', cat: 'Food' }); await page.click('#btn-logonly');
+  await tab(page, 'data');
+  ok(await until(async () => (await page.textContent('#sync-status')).includes('waiting')), 'sync: offline changes shown as waiting');
+  eq(g.rows().length, rowsNow, 'sync: nothing written while Google is unreachable');
+  await page.reload();
+  eq(Object.keys((await stored(page)).dirty).length, 2, 'sync: waiting changes survive closing the app');
+  g.setMode('up');
+  await tab(page, 'data');
+  await page.click('#btn-sync-now');
+  ok(await until(() => !!byNote('offline 1') && !!byNote('offline 2')), 'sync: waiting changes sync once back');
+  ok(await until(async () => (await page.textContent('#sync-status')).startsWith('✓')), 'sync: status clears after catching up');
+
+  // change made while a sync is in flight is not lost
+  g.setDelay(1500);
+  await tab(page, 'pay');
+  await fill(page, { amount: '10', note: 'racey', cat: 'Other' }); await page.click('#btn-logonly');
+  await page.waitForTimeout(1000); // first sync now in flight
+  await tab(page, 'history');
+  await page.click('.tx:has-text("racey")'); await page.fill('#e-amount', '11'); await page.click('#e-save');
+  g.setDelay(0);
+  ok(await until(() => byNote('racey') && byNote('racey')[2] === 11, 8000), 'sync: edit during an in-flight sync still reaches the sheet');
+
+  // restore missing entries on the same phone
+  await page.evaluate(() => { const st = JSON.parse(localStorage.getItem('spendgate.v1')); st.tx = st.tx.filter(t => t.note !== 'movie'); localStorage.setItem('spendgate.v1', JSON.stringify(st)); });
+  await page.reload();
+  await tab(page, 'data');
+  await page.click('#btn-restore');
+  eq(await toastText(page), 'Restored 1 entry from the sheet', 'sync: Restore brings back a lost entry');
+  ok((await stored(page)).tx.some(t => t.note === 'movie' && t.amount === 300 && t.status === 'paid'), 'sync: restored entry is complete');
+  await page.waitForTimeout(2700);
+  await page.click('#btn-restore');
+  ok((await toastText(page) || '').startsWith('Nothing missing'), 'sync: Restore twice adds nothing');
+
+  // brand-new phone (or wiped data): connect → everything comes back
+  const sheetCount = g.rows().length;
+  const fresh = await newPage(browser);
+  await tab(fresh.page, 'data');
+  await fresh.page.fill('#sync-url', g.url); await fresh.page.click('#btn-connect');
+  ok(await until(async () => (await stored(fresh.page)).tx.length === sheetCount), 'sync: new phone gets every entry back', { sheet: sheetCount });
+  await tab(fresh.page, 'history');
+  ok((await fresh.page.textContent('#history')).includes('breakfast'), 'sync: restored entries show in History');
+  await tab(fresh.page, 'summary');
+  const a = await page.evaluate(() => JSON.parse(localStorage.getItem('spendgate.v1')).tx.filter(t => t.status === 'paid').reduce((s, t) => s + t.amount, 0));
+  const b = await fresh.page.evaluate(() => JSON.parse(localStorage.getItem('spendgate.v1')).tx.filter(t => t.status === 'paid').reduce((s, t) => s + t.amount, 0));
+  eq(b, a, 'sync: restored totals match the original phone');
+  await page.waitForTimeout(1500);
+  eq(g.rows().length, sheetCount, 'sync: reconnecting does not duplicate rows');
+  ok(fresh.errors.length === 0, 'no page errors (fresh device)', fresh.errors);
+  await fresh.ctx.close();
+
+  // many entries go up in batches
+  const many = await newPage(browser);
+  g.reset();
+  await seed(many.page, Array.from({ length: 450 }, (_, i) => ({ id: 'm' + i, ts: T('2026-10-01T10:00:00+05:30') + i * 60000, amount: i + 1, category: 'Food', note: 'n' + i, status: 'paid' })));
+  await tab(many.page, 'data');
+  await many.page.fill('#sync-url', g.url); await many.page.click('#btn-connect');
+  ok(await until(() => g.rows().length === 450, 15000), 'sync: 450 entries upload in batches', g.rows().length);
+  ok(await until(async () => Object.keys((await stored(many.page)).dirty).length === 0), 'sync: nothing left waiting after batches');
+  await many.ctx.close();
+
+  // disconnect
+  await tab(page, 'data');
+  await page.click('#btn-disconnect');
+  ok(await page.isVisible('#sync-off'), 'sync: disconnect returns to setup');
+  ok(!(await stored(page)).syncUrl, 'sync: disconnect forgets the URL');
+  ok((await stored(page)).tx.length > 0, 'sync: disconnect keeps local data');
+  await page.screenshot({ path: `${SHOTS}${engine}-data-setup.png`, fullPage: true });
+  ok(dev.errors.length === 0, 'no page errors (sync)', dev.errors);
+  await dev.ctx.close();
+  await g.close();
 }
 
 await browser.close();
