@@ -144,6 +144,7 @@ dialog h3{margin:0 0 6px;font-size:19px}
     <div id="app-pick">
       <label>Pay with</label>
       <div class="apps" id="f-apps"></div>
+      <p class="hint" id="p2p-hint" hidden>Paying a person: UPI apps block pre-filled payments to people. SpendGate will save this, copy the UPI ID and open the app. Then scan their QR or paste the UPI ID there and pay.</p>
     </div>
 
     <p class="missing" id="missing"></p>
@@ -252,11 +253,12 @@ dialog h3{margin:0 0 6px;font-size:19px}
 // ---------- config ----------
 const CATEGORIES = ['Food', 'Groceries', 'Transport', 'Shopping', 'Bills', 'Entertainment', 'Health', 'Friends & family', 'Personal', 'Other'];
 // iOS cannot pick a UPI app for a bare upi:// link reliably, so each app gets its own scheme.
+// `home` just opens the app: used for payments to people, which UPI apps refuse when pre-filled by another app.
 const APPS = [
-  { id: 'gpay',    name: 'GPay',    base: 'gpay://upi/pay' },
-  { id: 'phonepe', name: 'PhonePe', base: 'phonepe://pay' },
-  { id: 'paytm',   name: 'Paytm',   base: 'paytmmp://pay' },
-  { id: 'upi',     name: 'Any UPI', base: 'upi://pay' },
+  { id: 'gpay',    name: 'GPay',    base: 'gpay://upi/pay', home: 'gpay://' },
+  { id: 'phonepe', name: 'PhonePe', base: 'phonepe://pay',  home: 'phonepe://' },
+  { id: 'paytm',   name: 'Paytm',   base: 'paytmmp://pay',  home: 'paytmmp://' },
+  { id: 'upi',     name: 'Any UPI', base: 'upi://pay',      home: '' },
 ];
 const KEY = 'spendgate.v1';
 
@@ -286,7 +288,8 @@ function startOfDay(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x
 function startOfWeek(d) { const x = startOfDay(d); const wd = (x.getDay() + 6) % 7; x.setDate(x.getDate() - wd); return x; } // Monday
 
 // ---------- QR parsing ----------
-// Returns {pa, pn, am, params} or null. Handles upi:// links and falls back to finding a UPI ID inside other QR formats.
+// Returns {pa, pn, am, params, merchant} or null. Handles upi:// links and falls back to finding a UPI ID inside other QR formats.
+// `merchant` is true for shop QRs (merchant code or signature); personal QRs carry no code or mc=0000.
 function parseQR(text) {
   text = (text || '').trim();
   if (/^upi:\/\//i.test(text)) {
@@ -294,12 +297,13 @@ function parseQR(text) {
     const params = new URLSearchParams(q);
     const pa = params.get('pa');
     if (!pa) return null;
-    return { pa, pn: params.get('pn') || '', am: params.get('am') || '', params };
+    const mc = params.get('mc') || '';
+    return { pa, pn: params.get('pn') || '', am: params.get('am') || '', params, merchant: !!params.get('sign') || (!!mc && !/^0+$/.test(mc)) };
   }
   const m = text.match(/[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z][a-zA-Z0-9]{1,64}/);
   const emv = parseEMV(text);
   if (emv) return emv;
-  if (m) return { pa: m[0], pn: '', am: '', params: null };
+  if (m) return { pa: m[0], pn: '', am: '', params: null, merchant: false };
   return null;
 }
 
@@ -322,7 +326,7 @@ function parseEMV(text) {
     if (sub) for (const v of Object.values(sub)) if (VPA_RE.test(v)) { pa = v; break; }
   }
   if (!pa) return null;
-  return { pa, pn: top['59'] || '', am: top['54'] || '', params: null };
+  return { pa, pn: top['59'] || '', am: top['54'] || '', params: null, merchant: true }; // Bharat QR is only issued to merchants
 }
 
 function buildPayUrl(appId, entry) {
@@ -336,10 +340,16 @@ function buildPayUrl(appId, entry) {
   if (!p.get('tn')) p.set('tn', entry.note.slice(0, 50));
   return app.base + '?' + p.toString().replace(/\+/g, '%20').replace(/%40/g, '@');
 }
+// Where to send the user: a pre-filled payment for shops, or just the app's home screen for people.
+function handoffUrl(appId, entry) {
+  if (entry.merchant) return buildPayUrl(appId, entry);
+  const app = APPS.find(a => a.id === appId) || APPS[0];
+  return app.home;
+}
 
 // ---------- pay form ----------
 const form = $('#pay-form');
-let current = { pa: '', pn: '', qrParams: '', lockedAmount: false };
+let current = { pa: '', pn: '', qrParams: '', lockedAmount: false, merchant: false };
 let pickedCat = '';
 
 function renderChips(container, selected, onPick) {
@@ -359,7 +369,7 @@ function renderApps() {
     const b = document.createElement('button');
     b.type = 'button'; b.className = 'chip'; b.textContent = a.name;
     b.setAttribute('aria-pressed', String(a.id === state.app));
-    b.onclick = () => { state.app = a.id; save(); renderApps(); };
+    b.onclick = () => { state.app = a.id; save(); renderApps(); validate(); };
     box.appendChild(b);
   });
 }
@@ -383,12 +393,16 @@ function validate() {
   else if (!msg && !vpaOk) msg = 'That UPI ID doesn\'t look right (it should look like name@bank).';
   $('#missing').textContent = msg;
   $('#app-pick').hidden = !vpa;
+  const person = !!vpa && !current.merchant;
+  const app = APPS.find(a => a.id === state.app) || APPS[0];
+  $('#p2p-hint').hidden = !person;
+  $('#btn-pay').textContent = !person ? 'Log & pay' : app.home ? 'Log, copy UPI ID & open ' + app.name : 'Log & copy UPI ID';
   return { amount, note, vpa, ok: baseOk, vpaOk };
 }
 ['#f-amount', '#f-note', '#f-vpa'].forEach(s => $(s).addEventListener('input', validate));
 
 function setPayee(info) {
-  current = { pa: info.pa, pn: info.pn, qrParams: info.params ? info.params.toString() : '', lockedAmount: !!parseAmount(info.am) };
+  current = { pa: info.pa, pn: info.pn, qrParams: info.params ? info.params.toString() : '', lockedAmount: !!parseAmount(info.am), merchant: !!info.merchant };
   $('#payee-name').textContent = info.pn || info.pa;
   $('#payee-vpa').textContent = info.pa;
   $('#payee-avatar').textContent = (info.pn || info.pa).trim().charAt(0).toUpperCase();
@@ -401,7 +415,7 @@ function setPayee(info) {
   (amt ? $('#f-note') : $('#f-amount')).focus();
 }
 function clearPayee() {
-  current = { pa: '', pn: '', qrParams: '', lockedAmount: false };
+  current = { pa: '', pn: '', qrParams: '', lockedAmount: false, merchant: false };
   $('#payee-box').hidden = true; $('#vpa-entry').hidden = false;
   $('#f-amount').readOnly = false;
   validate();
@@ -420,7 +434,7 @@ function makeEntry(status) {
   return {
     id: uid(), ts: Date.now(), amount: v.amount, category: pickedCat, note: v.note,
     payee: v.vpa || '', payeeName: current.pn || '', qrParams: current.qrParams || '',
-    status, app: v.vpa ? state.app : ''
+    status, app: v.vpa ? state.app : '', merchant: !!current.pa && current.merchant
   };
 }
 
@@ -446,7 +460,10 @@ let launchedAt = 0, leftPage = false;
 function openPayment(entry) {
   launchedAt = Date.now(); leftPage = false;
   sessionPending = entry.id;
-  window.location.href = buildPayUrl(state.app, entry);
+  if (!entry.merchant && navigator.clipboard) navigator.clipboard.writeText(entry.payee).catch(() => {});
+  const url = handoffUrl(state.app, entry);
+  if (!url) { toast('UPI ID copied. Open your UPI app and pay ' + inr(entry.amount)); return; } // asked on return
+  window.location.href = url;
   // If the page never went to the background, the payment app most likely didn't open.
   setTimeout(() => {
     if (!leftPage && sessionPending === entry.id && document.visibilityState === 'visible') { sessionPending = null; askConfirm(entry.id, true); }
@@ -694,7 +711,7 @@ $('#import-input').addEventListener('change', async e => {
         id: t.id, ts: Number(t.ts), amount: parseAmount(t.amount),
         category: String(t.category || 'Other'), note: String(t.note || ''),
         payee: String(t.payee || ''), payeeName: String(t.payeeName || ''), qrParams: String(t.qrParams || ''),
-        status: t.status === 'pending' ? 'pending' : 'paid', app: String(t.app || '')
+        status: t.status === 'pending' ? 'pending' : 'paid', app: String(t.app || ''), merchant: !!t.merchant
       });
       have.add(t.id); added++;
     });
@@ -718,7 +735,7 @@ function renderAll() {
 }
 
 // expose for testing
-window.__spendgate = { parseQR, buildPayUrl };
+window.__spendgate = { parseQR, buildPayUrl, handoffUrl };
 
 renderPayChips(); renderApps(); validate(); renderAll();
 })();
