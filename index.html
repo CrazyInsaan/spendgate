@@ -1,0 +1,727 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>SpendGate</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="SpendGate">
+<meta name="theme-color" content="#166534">
+<meta name="color-scheme" content="light dark">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<script src="jsQR.js"></script>
+<style>
+:root{
+  --bg:#f6f5f1; --card:#ffffff; --ink:#1c1b18; --muted:#6b6862; --line:#e4e1da;
+  --accent:#166534; --accent-ink:#ffffff; --accent-soft:#dcfce7;
+  --warn:#b45309; --warn-soft:#fef3c7; --danger:#b91c1c; --danger-soft:#fee2e2;
+  --radius:14px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#111210; --card:#1b1c1a; --ink:#f1f0ec; --muted:#9d9a93; --line:#2c2d2a;
+    --accent:#4ade80; --accent-ink:#06210f; --accent-soft:#163a22;
+    --warn:#fbbf24; --warn-soft:#3a2e10; --danger:#f87171; --danger-soft:#3b1717;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#111210; --card:#1b1c1a; --ink:#f1f0ec; --muted:#9d9a93; --line:#2c2d2a;
+  --accent:#4ade80; --accent-ink:#06210f; --accent-soft:#163a22;
+  --warn:#fbbf24; --warn-soft:#3a2e10; --danger:#f87171; --danger-soft:#3b1717;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-tap-highlight-color:transparent;
+  padding:env(safe-area-inset-top) 0 calc(76px + env(safe-area-inset-bottom))}
+main{max-width:560px;margin:0 auto;padding:16px}
+h1{font-size:22px;margin:4px 0 14px;letter-spacing:-.01em}
+h2{font-size:15px;margin:22px 0 8px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px}
+.row{display:flex;gap:10px;align-items:center}
+.grow{flex:1;min-width:0}
+label{display:block;font-size:13px;font-weight:600;color:var(--muted);margin:14px 0 6px}
+label .req{color:var(--danger)}
+input,textarea,select{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px;outline:none}
+input:focus,textarea:focus{border-color:var(--accent)}
+input.amount{font-size:28px;font-weight:700;padding:10px 12px}
+button{font:inherit;border:0;border-radius:12px;padding:13px 16px;cursor:pointer;font-weight:600;background:var(--bg);color:var(--ink);border:1px solid var(--line)}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);width:100%;font-size:17px}
+button.primary:disabled{opacity:.35;cursor:not-allowed}
+button.ghost{background:transparent}
+button.small{padding:8px 12px;font-size:14px;border-radius:10px}
+button.danger{color:var(--danger)}
+.scanbar{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{padding:8px 12px;border-radius:999px;font-size:14px;font-weight:500}
+.chip[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.payee{display:flex;gap:12px;align-items:center;padding:12px;border-radius:12px;background:var(--accent-soft);margin-top:14px}
+.payee .avatar{width:40px;height:40px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-weight:700;flex:none}
+.payee .name{font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.payee .vpa{font-size:13px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hint{font-size:13px;color:var(--muted);margin:8px 0 0}
+.missing{font-size:13px;color:var(--warn);margin:10px 0 0;min-height:1.2em}
+.apps{display:flex;gap:8px;flex-wrap:wrap}
+.stack>*+*{margin-top:10px}
+.banner{background:var(--warn-soft);color:var(--ink);border-radius:12px;padding:12px 14px;margin-bottom:14px;font-size:14px}
+.banner b{color:var(--warn)}
+.stats{display:grid;gap:10px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;min-width:0;display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.stat.big{display:block}
+.stat .k{font-size:14px;color:var(--muted);font-weight:600}
+.stat .v{font-size:20px;font-weight:750;font-variant-numeric:tabular-nums;white-space:nowrap}
+.stat.big .k{font-size:12px}
+.stat.big .v{font-size:30px;margin-top:2px}
+.bar{height:8px;background:var(--line);border-radius:6px;overflow:hidden;margin-top:6px}
+.bar>i{display:block;height:100%;background:var(--accent);border-radius:6px}
+.cat{padding:10px 0;border-bottom:1px solid var(--line)}
+.cat:last-child{border-bottom:0}
+.cat .row{justify-content:space-between}
+.amt{font-variant-numeric:tabular-nums;font-weight:650;white-space:nowrap}
+.day{font-size:13px;font-weight:650;color:var(--muted);margin:18px 0 6px;display:flex;justify-content:space-between}
+.tx{display:flex;gap:12px;align-items:center;padding:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:8px;cursor:pointer;width:100%;text-align:left;font-weight:400}
+.tx .note{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tx .meta{font-size:13px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag{font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;background:var(--warn-soft);color:var(--warn);margin-left:6px;vertical-align:middle}
+.empty{color:var(--muted);text-align:center;padding:30px 10px}
+.monthnav{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.monthnav b{font-size:17px}
+nav.tabs{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);padding:6px 6px calc(6px + env(safe-area-inset-bottom));z-index:5}
+nav.tabs button{border:0;background:transparent;font-size:12px;padding:8px 4px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:2px}
+nav.tabs button[aria-current="page"]{color:var(--accent)}
+nav.tabs svg{width:22px;height:22px}
+[hidden]{display:none!important}
+dialog{border:0;border-radius:18px;padding:0;max-width:440px;width:calc(100% - 32px);background:var(--card);color:var(--ink)}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+dialog .inner{padding:20px}
+dialog h3{margin:0 0 6px;font-size:19px}
+.btns{display:grid;gap:8px;margin-top:16px}
+.btns.two{grid-template-columns:1fr 1fr}
+#scanner{position:fixed;inset:0;background:#000;z-index:20;display:flex;flex-direction:column}
+#scanner video{flex:1;width:100%;object-fit:cover}
+#scanner .frame{position:absolute;left:50%;top:45%;width:min(70vw,300px);aspect-ratio:1;transform:translate(-50%,-50%);border:3px solid rgba(255,255,255,.9);border-radius:20px;box-shadow:0 0 0 100vmax rgba(0,0,0,.4)}
+#scanner .bottom{position:absolute;left:0;right:0;bottom:0;padding:20px 16px calc(20px + env(safe-area-inset-bottom));display:flex;justify-content:center}
+#scanner .msg{position:absolute;top:calc(20px + env(safe-area-inset-top));left:16px;right:16px;color:#fff;text-align:center;font-weight:600}
+.toast{position:fixed;left:50%;bottom:calc(90px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:14px;z-index:30;max-width:90vw}
+</style>
+</head>
+<body>
+<main>
+
+<!-- PAY -->
+<section id="view-pay">
+  <h1>Pay</h1>
+  <div id="pending-banner" class="banner" hidden></div>
+  <div class="scanbar">
+    <button id="btn-live" type="button">📷 Scan QR</button>
+    <button id="btn-photo" type="button">🖼 QR from photo</button>
+  </div>
+  <input id="photo-input" type="file" accept="image/*" hidden>
+  <p class="hint">Or type a UPI ID below. Leave it empty to just log a payment you made some other way.</p>
+
+  <form id="pay-form" class="card" style="margin-top:12px" autocomplete="off" novalidate>
+    <div id="payee-box" class="payee" hidden>
+      <div class="avatar" id="payee-avatar">?</div>
+      <div class="grow"><div class="name" id="payee-name"></div><div class="vpa" id="payee-vpa"></div></div>
+      <button type="button" class="small ghost" id="payee-clear" aria-label="Clear payee">✕</button>
+    </div>
+    <div id="vpa-entry">
+      <label for="f-vpa">UPI ID (optional)</label>
+      <input id="f-vpa" inputmode="email" placeholder="name@okaxis" autocapitalize="off" spellcheck="false">
+    </div>
+
+    <label for="f-amount">Amount <span class="req">*</span></label>
+    <input id="f-amount" class="amount" inputmode="decimal" placeholder="₹0">
+
+    <label>What is it for? <span class="req">*</span></label>
+    <div class="chips" id="f-cats"></div>
+
+    <label for="f-note">Reason, in a few words <span class="req">*</span></label>
+    <input id="f-note" maxlength="60" placeholder="e.g. lunch with Ravi">
+
+    <div id="app-pick">
+      <label>Pay with</label>
+      <div class="apps" id="f-apps"></div>
+    </div>
+
+    <p class="missing" id="missing"></p>
+    <div class="stack">
+      <button type="submit" class="primary" id="btn-pay" disabled>Log &amp; pay</button>
+      <button type="button" id="btn-logonly" disabled>Only log it (already paid / paying elsewhere)</button>
+    </div>
+  </form>
+</section>
+
+<!-- HISTORY -->
+<section id="view-history" hidden>
+  <h1>History</h1>
+  <div id="history"></div>
+</section>
+
+<!-- SUMMARY -->
+<section id="view-summary" hidden>
+  <h1>Summary</h1>
+  <div class="stats">
+    <div class="stat big"><div class="k">This month</div><div class="v" id="s-month">₹0</div></div>
+    <div class="stat"><div class="k">Today</div><div class="v" id="s-today">₹0</div></div>
+    <div class="stat"><div class="k">This week</div><div class="v" id="s-week">₹0</div></div>
+  </div>
+  <h2>By category</h2>
+  <div class="card">
+    <div class="monthnav">
+      <button class="small" id="m-prev" type="button" aria-label="Previous month">‹</button>
+      <b id="m-label"></b>
+      <button class="small" id="m-next" type="button" aria-label="Next month">›</button>
+    </div>
+    <div id="m-cats"></div>
+  </div>
+</section>
+
+<!-- DATA -->
+<section id="view-data" hidden>
+  <h1>Your data</h1>
+  <div class="card stack">
+    <p style="margin:0">Everything is stored only on this device. iPhone can sometimes clear website data, so <b>export a backup now and then</b>.</p>
+    <button type="button" id="btn-export-json">Export backup (.json)</button>
+    <button type="button" id="btn-export-csv">Export for Excel / Sheets (.csv)</button>
+    <button type="button" id="btn-import">Import backup</button>
+    <input type="file" id="import-input" accept="application/json,.json" hidden>
+    <p class="hint" id="data-count"></p>
+  </div>
+</section>
+
+</main>
+
+<nav class="tabs" aria-label="Sections">
+  <button data-tab="pay" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"/></svg>Pay</button>
+  <button data-tab="history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>History</button>
+  <button data-tab="summary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Summary</button>
+  <button data-tab="data"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>Data</button>
+</nav>
+
+<div id="scanner" hidden>
+  <video id="scan-video" playsinline muted></video>
+  <div class="frame"></div>
+  <div class="msg" id="scan-msg">Point at a UPI QR code</div>
+  <div class="bottom"><button type="button" id="scan-close">Cancel</button></div>
+</div>
+<canvas id="scan-canvas" hidden></canvas>
+
+<dialog id="dlg-confirm">
+  <div class="inner">
+    <h3>Did the payment go through?</h3>
+    <p id="confirm-text" style="margin:0;color:var(--muted)"></p>
+    <label for="confirm-amount">Amount actually paid</label>
+    <input id="confirm-amount" inputmode="decimal">
+    <div class="btns">
+      <button type="button" class="primary" id="confirm-yes">Yes, it's paid</button>
+      <div class="btns two" style="margin-top:0">
+        <button type="button" id="confirm-later">Not sure yet</button>
+        <button type="button" class="danger" id="confirm-no">No, it failed</button>
+      </div>
+      <button type="button" class="ghost small" id="confirm-retry">Open payment app again</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="dlg-edit">
+  <form method="dialog" class="inner" id="edit-form">
+    <h3>Edit expense</h3>
+    <label for="e-amount">Amount</label>
+    <input id="e-amount" inputmode="decimal">
+    <label>Category</label>
+    <div class="chips" id="e-cats"></div>
+    <label for="e-note">Reason</label>
+    <input id="e-note" maxlength="60">
+    <label for="e-date">Date &amp; time</label>
+    <input id="e-date" type="datetime-local">
+    <div class="btns two">
+      <button type="button" class="danger" id="e-delete">Delete</button>
+      <button type="submit" class="primary" id="e-save">Save</button>
+    </div>
+    <button type="button" class="ghost small" id="e-cancel" style="width:100%;margin-top:8px">Cancel</button>
+  </form>
+</dialog>
+
+<script>
+(() => {
+'use strict';
+
+// ---------- config ----------
+const CATEGORIES = ['Food', 'Groceries', 'Transport', 'Shopping', 'Bills', 'Entertainment', 'Health', 'Friends & family', 'Personal', 'Other'];
+// iOS cannot pick a UPI app for a bare upi:// link reliably, so each app gets its own scheme.
+const APPS = [
+  { id: 'gpay',    name: 'GPay',    base: 'gpay://upi/pay' },
+  { id: 'phonepe', name: 'PhonePe', base: 'phonepe://pay' },
+  { id: 'paytm',   name: 'Paytm',   base: 'paytmmp://pay' },
+  { id: 'upi',     name: 'Any UPI', base: 'upi://pay' },
+];
+const KEY = 'spendgate.v1';
+
+// ---------- storage ----------
+function load() {
+  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && Array.isArray(s.tx)) return s; } catch (e) {}
+  return { tx: [], app: 'gpay' };
+}
+let state = load();
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(state)); }
+  catch (e) { toast('Could not save on this device. Export a backup!'); }
+}
+
+// ---------- helpers ----------
+const $ = s => document.querySelector(s);
+const inr = n => { const r = Math.round(n * 100) / 100; const f = r % 1 ? 2 : 0; return '₹' + r.toLocaleString('en-IN', { minimumFractionDigits: f, maximumFractionDigits: f }); };
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const parseAmount = v => { const n = parseFloat(String(v).replace(/[₹,\s]/g, '')); return isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null; };
+const VPA_RE = /^[a-zA-Z0-9.\-_]{1,256}@[a-zA-Z][a-zA-Z0-9.\-]{1,64}$/;
+function toast(msg) {
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 2600);
+}
+function dayKey(d) { return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
+function startOfDay(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
+function startOfWeek(d) { const x = startOfDay(d); const wd = (x.getDay() + 6) % 7; x.setDate(x.getDate() - wd); return x; } // Monday
+
+// ---------- QR parsing ----------
+// Returns {pa, pn, am, params} or null. Handles upi:// links and falls back to finding a UPI ID inside other QR formats.
+function parseQR(text) {
+  text = (text || '').trim();
+  if (/^upi:\/\//i.test(text)) {
+    const q = text.slice(text.indexOf('?') + 1);
+    const params = new URLSearchParams(q);
+    const pa = params.get('pa');
+    if (!pa) return null;
+    return { pa, pn: params.get('pn') || '', am: params.get('am') || '', params };
+  }
+  const m = text.match(/[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z][a-zA-Z0-9]{1,64}/);
+  const emv = parseEMV(text);
+  if (emv) return emv;
+  if (m) return { pa: m[0], pn: '', am: '', params: null };
+  return null;
+}
+
+// Bharat QR / EMV codes are tag(2) + length(2) + value records; the UPI ID sits inside one of tags 26-51.
+function tlv(s) {
+  const out = {}; let i = 0;
+  while (i + 4 <= s.length) {
+    const tag = s.slice(i, i + 2), len = parseInt(s.slice(i + 2, i + 4), 10);
+    if (!/^\d\d$/.test(tag) || isNaN(len) || i + 4 + len > s.length) return null;
+    out[tag] = s.slice(i + 4, i + 4 + len); i += 4 + len;
+  }
+  return out;
+}
+function parseEMV(text) {
+  if (!/^000201/.test(text)) return null;
+  const top = tlv(text); if (!top) return null;
+  let pa = '';
+  for (let t = 26; t <= 51 && !pa; t++) {
+    const sub = top[String(t)] && tlv(top[String(t)]);
+    if (sub) for (const v of Object.values(sub)) if (VPA_RE.test(v)) { pa = v; break; }
+  }
+  if (!pa) return null;
+  return { pa, pn: top['59'] || '', am: top['54'] || '', params: null };
+}
+
+function buildPayUrl(appId, entry) {
+  const app = APPS.find(a => a.id === appId) || APPS[0];
+  // Keep the merchant's original QR fields (some are signed) and only fill in what is missing.
+  const p = new URLSearchParams(entry.qrParams || '');
+  p.set('pa', entry.payee);
+  if (!p.get('pn') && entry.payeeName) p.set('pn', entry.payeeName);
+  if (!p.get('am')) p.set('am', entry.amount.toFixed(2));
+  if (!p.get('cu')) p.set('cu', 'INR');
+  if (!p.get('tn')) p.set('tn', entry.note.slice(0, 50));
+  return app.base + '?' + p.toString().replace(/\+/g, '%20').replace(/%40/g, '@');
+}
+
+// ---------- pay form ----------
+const form = $('#pay-form');
+let current = { pa: '', pn: '', qrParams: '', lockedAmount: false };
+let pickedCat = '';
+
+function renderChips(container, selected, onPick) {
+  container.innerHTML = '';
+  CATEGORIES.forEach(c => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'chip'; b.textContent = c;
+    b.setAttribute('aria-pressed', String(c === selected));
+    b.onclick = () => onPick(c);
+    container.appendChild(b);
+  });
+}
+function renderPayChips() { renderChips($('#f-cats'), pickedCat, c => { pickedCat = c; renderPayChips(); validate(); }); }
+function renderApps() {
+  const box = $('#f-apps'); box.innerHTML = '';
+  APPS.forEach(a => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'chip'; b.textContent = a.name;
+    b.setAttribute('aria-pressed', String(a.id === state.app));
+    b.onclick = () => { state.app = a.id; save(); renderApps(); };
+    box.appendChild(b);
+  });
+}
+
+function currentVpa() { return current.pa || $('#f-vpa').value.trim(); }
+
+function validate() {
+  const amount = parseAmount($('#f-amount').value);
+  const note = $('#f-note').value.trim();
+  const vpa = currentVpa();
+  const missing = [];
+  if (!amount) missing.push('amount');
+  if (!pickedCat) missing.push('category');
+  if (note.length < 2) missing.push('reason');
+  const vpaOk = !!current.pa || (!!vpa && VPA_RE.test(vpa)); // a scanned UPI ID is trusted as-is
+  const baseOk = missing.length === 0;
+  $('#btn-logonly').disabled = !baseOk;
+  $('#btn-pay').disabled = !(baseOk && vpaOk);
+  let msg = missing.length ? 'Still needed: ' + missing.join(', ') : '';
+  if (!msg && !vpa) msg = 'No UPI ID: you can log it, but scan a QR or enter a UPI ID to pay from here.';
+  else if (!msg && !vpaOk) msg = 'That UPI ID doesn\'t look right (it should look like name@bank).';
+  $('#missing').textContent = msg;
+  $('#app-pick').hidden = !vpa;
+  return { amount, note, vpa, ok: baseOk, vpaOk };
+}
+['#f-amount', '#f-note', '#f-vpa'].forEach(s => $(s).addEventListener('input', validate));
+
+function setPayee(info) {
+  current = { pa: info.pa, pn: info.pn, qrParams: info.params ? info.params.toString() : '', lockedAmount: !!parseAmount(info.am) };
+  $('#payee-name').textContent = info.pn || info.pa;
+  $('#payee-vpa').textContent = info.pa;
+  $('#payee-avatar').textContent = (info.pn || info.pa).trim().charAt(0).toUpperCase();
+  $('#payee-box').hidden = false;
+  $('#vpa-entry').hidden = true;
+  const amt = parseAmount(info.am);
+  $('#f-amount').value = amt ? String(amt) : '';
+  $('#f-amount').readOnly = !!amt; // amount fixed by the QR
+  validate();
+  (amt ? $('#f-note') : $('#f-amount')).focus();
+}
+function clearPayee() {
+  current = { pa: '', pn: '', qrParams: '', lockedAmount: false };
+  $('#payee-box').hidden = true; $('#vpa-entry').hidden = false;
+  $('#f-amount').readOnly = false;
+  validate();
+}
+$('#payee-clear').onclick = clearPayee;
+
+function resetForm() {
+  clearPayee();
+  $('#f-vpa').value = ''; $('#f-amount').value = ''; $('#f-note').value = '';
+  pickedCat = ''; renderPayChips(); validate();
+}
+
+function makeEntry(status) {
+  const v = validate();
+  if (!v.ok) return null;
+  return {
+    id: uid(), ts: Date.now(), amount: v.amount, category: pickedCat, note: v.note,
+    payee: v.vpa || '', payeeName: current.pn || '', qrParams: current.qrParams || '',
+    status, app: v.vpa ? state.app : ''
+  };
+}
+
+form.addEventListener('submit', e => {
+  e.preventDefault();
+  const v = validate();
+  if (!v.ok || !v.vpaOk) return;
+  const entry = makeEntry('pending');
+  state.tx.unshift(entry); save();         // logged before the payment app opens
+  resetForm(); renderAll();
+  openPayment(entry);
+});
+$('#btn-logonly').onclick = () => {
+  const entry = makeEntry('paid');
+  if (!entry) return;
+  state.tx.unshift(entry); save();
+  if (entry.payee && navigator.clipboard) navigator.clipboard.writeText(entry.payee).then(() => toast('Logged. UPI ID copied.'), () => toast('Logged'));
+  else toast('Logged ' + inr(entry.amount));
+  resetForm(); renderAll();
+};
+
+let launchedAt = 0, leftPage = false;
+function openPayment(entry) {
+  launchedAt = Date.now(); leftPage = false;
+  sessionPending = entry.id;
+  window.location.href = buildPayUrl(state.app, entry);
+  // If the page never went to the background, the payment app most likely didn't open.
+  setTimeout(() => {
+    if (!leftPage && sessionPending === entry.id && document.visibilityState === 'visible') { sessionPending = null; askConfirm(entry.id, true); }
+  }, 3000);
+}
+
+// ---------- pending confirmation ----------
+let sessionPending = null;
+let confirmId = null;
+function pendingList() { return state.tx.filter(t => t.status === 'pending'); }
+
+function askConfirm(id, maybeNotOpened) {
+  const t = state.tx.find(x => x.id === id);
+  if (!t || t.status !== 'pending') return;
+  confirmId = id;
+  const who = t.payeeName || t.payee;
+  $('#confirm-text').textContent = inr(t.amount) + (who ? ' to ' + who : '') + ' for "' + t.note + '"' +
+    (maybeNotOpened ? '. If the payment app didn\'t open, choose a different app on the Pay screen, or pay manually: the UPI ID has been copied.' : '');
+  $('#confirm-retry').hidden = !t.payee;
+  if (maybeNotOpened && t.payee && navigator.clipboard) navigator.clipboard.writeText(t.payee).catch(() => {});
+  $('#confirm-amount').value = t.amount;
+  const d = $('#dlg-confirm'); if (!d.open) d.showModal();
+}
+$('#confirm-yes').onclick = () => {
+  const t = state.tx.find(x => x.id === confirmId); if (!t) return;
+  const a = parseAmount($('#confirm-amount').value); if (a) t.amount = a;
+  t.status = 'paid'; save(); $('#dlg-confirm').close(); renderAll(); toast('Saved ' + inr(t.amount));
+};
+$('#confirm-no').onclick = () => {
+  state.tx = state.tx.filter(x => x.id !== confirmId); save(); $('#dlg-confirm').close(); renderAll(); toast('Removed');
+};
+$('#confirm-later').onclick = () => { $('#dlg-confirm').close(); renderAll(); };
+$('#confirm-retry').onclick = () => {
+  const t = state.tx.find(x => x.id === confirmId); if (!t) return;
+  $('#dlg-confirm').close(); openPayment(t);
+};
+function checkReturn() {
+  if (document.visibilityState !== 'visible') { if (sessionPending) leftPage = true; return; }
+  if (sessionPending && leftPage) { const id = sessionPending; sessionPending = null; askConfirm(id); }
+}
+document.addEventListener('visibilitychange', checkReturn);
+window.addEventListener('pagehide', () => { if (sessionPending) leftPage = true; });
+window.addEventListener('pageshow', checkReturn);
+
+function renderBanner() {
+  const p = pendingList(); const b = $('#pending-banner');
+  if (!p.length) { b.hidden = true; return; }
+  b.hidden = false; b.innerHTML = '';
+  const s = document.createElement('span');
+  s.innerHTML = '<b>' + p.length + ' payment' + (p.length > 1 ? 's' : '') + ' not confirmed.</b> ';
+  const btn = document.createElement('button'); btn.className = 'small'; btn.type = 'button'; btn.textContent = 'Review';
+  btn.onclick = () => askConfirm(p[0].id);
+  b.append(s, btn);
+}
+
+// ---------- scanning ----------
+function handleScan(text) {
+  const info = parseQR(text);
+  if (!info) { toast('That QR code isn\'t a UPI payment code'); return false; }
+  setPayee(info); return true;
+}
+$('#btn-photo').onclick = () => $('#photo-input').click();
+$('#photo-input').addEventListener('change', async e => {
+  const file = e.target.files[0]; e.target.value = '';
+  if (!file) return;
+  if (!window.jsQR) { toast('QR reader didn\'t load. Check your internet connection'); return; }
+  let img;
+  try { img = await loadImage(file); } catch (err) { toast('Couldn\'t read that image'); return; }
+  // Small QR codes in big photos need more pixels, so retry at a larger size.
+  const result = decodeFromSource(img, img.width, img.height, 1200) || decodeFromSource(img, img.width, img.height, 2400);
+  if (!result) toast('No QR code found in that photo'); else handleScan(result);
+});
+function loadImage(file) {
+  // <img> decodes every format Safari can show (including iPhone HEIC photos).
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file); const im = new Image();
+    im.onload = () => { URL.revokeObjectURL(url); resolve({ el: im, width: im.naturalWidth, height: im.naturalHeight }); };
+    im.onerror = () => { URL.revokeObjectURL(url); reject(new Error('decode')); };
+    im.src = url;
+  });
+}
+function decodeFromSource(src, w, h, maxSide, fast) {
+  if (src.el) src = src.el;
+  const scale = Math.min(1, maxSide / Math.max(w, h));
+  const c = $('#scan-canvas'); c.width = Math.round(w * scale); c.height = Math.round(h * scale);
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(src, 0, 0, c.width, c.height);
+  const img = ctx.getImageData(0, 0, c.width, c.height);
+  const r = jsQR(img.data, img.width, img.height, { inversionAttempts: fast ? 'dontInvert' : 'attemptBoth' });
+  return r ? r.data : null;
+}
+
+let stream = null, scanning = false;
+$('#btn-live').onclick = async () => {
+  if (!window.jsQR) { toast('QR reader didn\'t load. Check your internet connection'); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { $('#btn-photo').click(); return; }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+  } catch (e) { toast('Camera not available here. Use "QR from photo"'); return; }
+  const v = $('#scan-video'); v.srcObject = stream; await v.play().catch(() => {});
+  $('#scanner').hidden = false; scanning = true; tick();
+};
+function stopScan() {
+  scanning = false; $('#scanner').hidden = true;
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+}
+$('#scan-close').onclick = stopScan;
+function tick() {
+  if (!scanning) return;
+  const v = $('#scan-video');
+  if (v.readyState >= 2 && v.videoWidth) {
+    const r = decodeFromSource(v, v.videoWidth, v.videoHeight, 720, true);
+    if (r) {
+      if (parseQR(r)) { stopScan(); handleScan(r); return; }
+      $('#scan-msg').textContent = 'That QR code isn\'t a UPI payment code';
+    }
+  }
+  requestAnimationFrame(tick);
+}
+
+// ---------- history ----------
+function renderHistory() {
+  const box = $('#history'); box.innerHTML = '';
+  const list = [...state.tx].sort((a, b) => b.ts - a.ts);
+  if (!list.length) { box.innerHTML = '<div class="empty">Nothing logged yet. Every payment you make from the Pay tab shows up here.</div>'; return; }
+  let lastKey = null, dayHeader = null, dayTotal = 0;
+  const flush = () => { if (dayHeader) dayHeader.lastChild.textContent = inr(dayTotal); };
+  list.forEach(t => {
+    const d = new Date(t.ts); const k = dayKey(d);
+    if (k !== lastKey) {
+      flush(); lastKey = k; dayTotal = 0;
+      dayHeader = document.createElement('div'); dayHeader.className = 'day';
+      const l = document.createElement('span');
+      const today = startOfDay(new Date()); const diff = Math.round((today - startOfDay(d)) / 864e5);
+      l.textContent = diff === 0 ? 'Today' : diff === 1 ? 'Yesterday' : d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+      dayHeader.append(l, document.createElement('span')); box.appendChild(dayHeader);
+    }
+    if (t.status === 'paid') dayTotal += t.amount;
+    const row = document.createElement('button'); row.type = 'button'; row.className = 'tx';
+    const mid = document.createElement('div'); mid.className = 'grow';
+    const n = document.createElement('div'); n.className = 'note'; n.textContent = t.note;
+    if (t.status === 'pending') { const tag = document.createElement('span'); tag.className = 'tag'; tag.textContent = 'UNCONFIRMED'; n.appendChild(tag); }
+    const m = document.createElement('div'); m.className = 'meta';
+    m.textContent = d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }) + ' · ' + t.category + (t.payeeName || t.payee ? ' · ' + (t.payeeName || t.payee) : '');
+    mid.append(n, m);
+    const a = document.createElement('div'); a.className = 'amt'; a.textContent = inr(t.amount);
+    row.append(mid, a);
+    row.onclick = () => t.status === 'pending' ? askConfirm(t.id) : openEdit(t.id);
+    box.appendChild(row);
+  });
+  flush();
+}
+
+// ---------- edit ----------
+let editId = null, editCat = '';
+function toLocalInput(ts) { const d = new Date(ts); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); }
+function openEdit(id) {
+  const t = state.tx.find(x => x.id === id); if (!t) return;
+  editId = id; editCat = t.category;
+  $('#e-amount').value = t.amount; $('#e-note').value = t.note; $('#e-date').value = toLocalInput(t.ts);
+  const draw = () => renderChips($('#e-cats'), editCat, c => { editCat = c; draw(); }); draw();
+  $('#dlg-edit').showModal();
+}
+$('#edit-form').addEventListener('submit', e => {
+  e.preventDefault();
+  const t = state.tx.find(x => x.id === editId); if (!t) return;
+  const a = parseAmount($('#e-amount').value); const n = $('#e-note').value.trim();
+  if (!a || n.length < 2) { toast('Amount and reason are required'); return; }
+  t.amount = a; t.note = n; t.category = editCat;
+  const d = new Date($('#e-date').value); if (!isNaN(d)) t.ts = d.getTime();
+  save(); $('#dlg-edit').close(); renderAll();
+});
+$('#e-delete').onclick = () => {
+  if (!confirm('Delete this expense?')) return;
+  state.tx = state.tx.filter(x => x.id !== editId); save(); $('#dlg-edit').close(); renderAll();
+};
+$('#e-cancel').onclick = () => $('#dlg-edit').close();
+
+// ---------- summary ----------
+let monthOffset = 0;
+function sumWhere(fn) { return state.tx.filter(t => t.status === 'paid' && fn(t)).reduce((s, t) => s + t.amount, 0); }
+function renderSummary() {
+  const now = new Date();
+  const sod = startOfDay(now).getTime(), sow = startOfWeek(now).getTime();
+  const som = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  $('#s-today').textContent = inr(sumWhere(t => t.ts >= sod));
+  $('#s-week').textContent = inr(sumWhere(t => t.ts >= sow));
+  $('#s-month').textContent = inr(sumWhere(t => t.ts >= som));
+
+  const m0 = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
+  const m1 = new Date(m0.getFullYear(), m0.getMonth() + 1, 1);
+  $('#m-label').textContent = m0.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  $('#m-next').disabled = monthOffset >= 0;
+  const by = {};
+  state.tx.forEach(t => { if (t.status === 'paid' && t.ts >= m0 && t.ts < m1) by[t.category] = (by[t.category] || 0) + t.amount; });
+  const rows = Object.entries(by).sort((a, b) => b[1] - a[1]);
+  const total = rows.reduce((s, r) => s + r[1], 0);
+  const box = $('#m-cats'); box.innerHTML = '';
+  if (!rows.length) { box.innerHTML = '<div class="empty">No confirmed spending this month.</div>'; return; }
+  rows.forEach(([c, v]) => {
+    const el = document.createElement('div'); el.className = 'cat';
+    const r = document.createElement('div'); r.className = 'row';
+    const name = document.createElement('span'); name.textContent = c;
+    const amt = document.createElement('span'); amt.className = 'amt'; amt.textContent = inr(v) + '  ·  ' + Math.round(v / total * 100) + '%';
+    r.append(name, amt);
+    const bar = document.createElement('div'); bar.className = 'bar'; const i = document.createElement('i'); i.style.width = (v / rows[0][1] * 100) + '%'; bar.appendChild(i);
+    el.append(r, bar); box.appendChild(el);
+  });
+  const tot = document.createElement('div'); tot.className = 'cat';
+  tot.innerHTML = '<div class="row"><b>Total</b><b class="amt"></b></div>'; tot.querySelector('.amt').textContent = inr(total);
+  box.appendChild(tot);
+}
+$('#m-prev').onclick = () => { monthOffset--; renderSummary(); };
+$('#m-next').onclick = () => { if (monthOffset < 0) { monthOffset++; renderSummary(); } };
+
+// ---------- data ----------
+function download(name, text, type) {
+  const blob = new Blob([text], { type });
+  const file = new File([blob], name, { type });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) { navigator.share({ files: [file] }).catch(() => {}); return; }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+const stamp = () => new Date().toISOString().slice(0, 10);
+$('#btn-export-json').onclick = () => download('spendgate-backup-' + stamp() + '.json', JSON.stringify(state, null, 2), 'application/json');
+$('#btn-export-csv').onclick = () => {
+  const esc = v => '"' + String(v).replace(/"/g, '""') + '"';
+  const lines = [['Date', 'Time', 'Amount', 'Category', 'Reason', 'Paid to', 'UPI ID', 'Status'].join(',')];
+  [...state.tx].sort((a, b) => a.ts - b.ts).forEach(t => {
+    const d = new Date(t.ts);
+    lines.push([d.toLocaleDateString('en-CA'), d.toTimeString().slice(0, 5), t.amount, t.category, t.note, t.payeeName, t.payee, t.status].map(esc).join(','));
+  });
+  download('spendgate-' + stamp() + '.csv', '﻿' + lines.join('\n'), 'text/csv'); // BOM so Excel reads it as UTF-8
+};
+$('#btn-import').onclick = () => $('#import-input').click();
+$('#import-input').addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try {
+    const data = JSON.parse(await f.text());
+    if (!data || !Array.isArray(data.tx)) throw 0;
+    const have = new Set(state.tx.map(t => t.id)); let added = 0;
+    data.tx.forEach(t => {
+      if (!t || typeof t.id !== 'string' || have.has(t.id) || !parseAmount(t.amount) || !isFinite(t.ts)) return;
+      state.tx.push({
+        id: t.id, ts: Number(t.ts), amount: parseAmount(t.amount),
+        category: String(t.category || 'Other'), note: String(t.note || ''),
+        payee: String(t.payee || ''), payeeName: String(t.payeeName || ''), qrParams: String(t.qrParams || ''),
+        status: t.status === 'pending' ? 'pending' : 'paid', app: String(t.app || '')
+      });
+      have.add(t.id); added++;
+    });
+    save(); renderAll(); toast('Imported ' + added + ' new entr' + (added === 1 ? 'y' : 'ies'));
+  } catch (err) { toast('That file isn\'t a SpendGate backup'); }
+});
+
+// ---------- tabs ----------
+function show(tab) {
+  ['pay', 'history', 'summary', 'data'].forEach(t => { $('#view-' + t).hidden = t !== tab; });
+  document.querySelectorAll('nav.tabs button').forEach(b => {
+    if (b.dataset.tab === tab) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
+  window.scrollTo(0, 0);
+}
+document.querySelectorAll('nav.tabs button').forEach(b => b.onclick = () => show(b.dataset.tab));
+
+function renderAll() {
+  renderBanner(); renderHistory(); renderSummary();
+  const n = state.tx.length; $('#data-count').textContent = n + ' expense' + (n === 1 ? '' : 's') + ' stored on this device.';
+}
+
+// expose for testing
+window.__spendgate = { parseQR, buildPayUrl };
+
+renderPayChips(); renderApps(); validate(); renderAll();
+})();
+</script>
+</body>
+</html>

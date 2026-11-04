@@ -1,0 +1,9 @@
+{
+  "name": "spendgate-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node mky4m.mjs && node run.mjs webkit && node run.mjs chromium"
+  },
+  "dependencies": { "playwright": "1.59.1", "qrcode": "1.5.4" }
+}
