@@ -554,6 +554,9 @@ if (engine === 'chromium') {
   ok(/tr=SG\d+/.test(u[3]) && !u[3].includes('QR123'), 'test page D: fresh transaction ID replaces the old one', u[3]);
   eq(u[4], 'gpay://upi/pay?pa=shop@okaxis&pn=Ravi%20Tea', 'test page E: name and UPI ID only');
   await page.selectOption('#app', 'phonepe://pay');
+  await page.selectOption('#app', 'phonepe://upi/pay');
+  ok((await urls()).every(x => x.startsWith('phonepe://upi/pay?')), 'test page: PhonePe other link format');
+  await page.selectOption('#app', 'phonepe://pay');
   ok((await urls()).every(x => x.startsWith('phonepe://pay?')), 'test page: switching to PhonePe updates every link');
   await page.selectOption('[data-variant="A"] select', 'Opened filled, payment refused');
   const rep = await page.textContent('#report-text');
