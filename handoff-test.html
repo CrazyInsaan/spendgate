@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Payment Link Test</title>
+<script src="jsQR.js"></script>
+<style>
+:root{--bg:#f6f5f1;--card:#fff;--ink:#1c1b18;--muted:#6b6862;--line:#e4e1da;--accent:#166534;--accent-ink:#fff;--warn-soft:#fef3c7}
+@media (prefers-color-scheme: dark){:root{--bg:#111210;--card:#1b1c1a;--ink:#f1f0ec;--muted:#9d9a93;--line:#2c2d2a;--accent:#4ade80;--accent-ink:#06210f;--warn-soft:#3a2e10}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+main{max-width:560px;margin:0 auto;padding:16px 16px 40px}
+h1{font-size:22px;margin:4px 0 8px}
+p{margin:8px 0}
+.note{background:var(--warn-soft);border-radius:12px;padding:12px 14px;font-size:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-top:12px}
+button{font:inherit;font-weight:600;border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--bg);color:var(--ink);cursor:pointer;width:100%}
+button.go{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+select{font:inherit;width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);margin-top:8px}
+.raw{font:12px/1.4 ui-monospace,Menlo,monospace;overflow-wrap:anywhere;color:var(--muted)}
+.t{font-weight:650;margin:0 0 2px}.d{font-size:14px;color:var(--muted);margin:0 0 8px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <h1>Payment link test</h1>
+  <p class="note">Each button opens your payment app differently. Nothing is paid unless you enter your PIN, and a completed test sends real money to that QR's owner, so <b>pay only ₹1</b>. Stop as soon as one works. Nothing on this page leaves your phone.</p>
+
+  <div class="card">
+    <button type="button" id="pick">Choose a photo of the QR</button>
+    <input type="file" id="photo" accept="image/*" hidden>
+    <p id="status" class="d" style="margin-top:8px"></p>
+    <label for="app" class="t">Payment app</label>
+    <select id="app">
+      <option value="gpay://upi/pay">GPay</option>
+      <option value="phonepe://pay">PhonePe</option>
+    </select>
+  </div>
+
+  <div id="tests"></div>
+
+  <div class="card" id="report" hidden>
+    <p class="t">Your results</p>
+    <p class="raw" id="report-text"></p>
+    <button type="button" id="copy">Copy results</button>
+    <p class="d" style="margin:8px 0 0">Paste them into the chat, or send a screenshot of this box.</p>
+  </div>
+</main>
+
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+const OUTCOMES = ['', 'Did not open', 'Opened blank', 'Opened filled, not tried', 'Opened filled, payment refused', 'Payment went through'];
+let raw = '', results = {};
+
+// Replaces or adds one field and leaves every other field of the QR byte-for-byte as printed.
+function withParam(query, key, value) {
+  const kept = query.split('&').filter(p => p && p.split('=')[0].toLowerCase() !== key);
+  kept.push(key + '=' + encodeURIComponent(value));
+  return kept.join('&');
+}
+// Bank-format (EMV) QR: tag(2) + length(2) + value records, with the UPI ID inside tags 26-51.
+function tlv(s) {
+  const out = {}; let i = 0;
+  while (i + 4 <= s.length) {
+    const tag = s.slice(i, i + 2), len = parseInt(s.slice(i + 2, i + 4), 10);
+    if (isNaN(len) || i + 4 + len > s.length) return out;
+    out[tag] = s.slice(i + 4, i + 4 + len); i += 4 + len;
+  }
+  return out;
+}
+function parseEMV(text) {
+  const top = tlv(text); let pa = '';
+  for (let t = 26; t <= 51 && !pa; t++) {
+    if (top[t]) for (const v of Object.values(tlv(top[t]))) if (/^[\w.\-]+@[a-zA-Z][\w.\-]+$/.test(v)) { pa = v; break; }
+  }
+  return { pa, pn: top['59'] || '' };
+}
+function variants(text) {
+  const isUpi = /^upi:\/\//i.test(text);
+  let q, pa = '', pn = '';
+  if (isUpi) {
+    q = text.slice(text.indexOf('?') + 1);
+    const p = new URLSearchParams(q); pa = p.get('pa') || ''; pn = p.get('pn') || '';
+  } else {
+    const e = parseEMV(text); pa = e.pa; pn = e.pn;
+    q = 'pa=' + pa + (pn ? '&pn=' + encodeURIComponent(pn) : '');
+  }
+  const tr = 'SG' + Date.now();
+  const minimal = 'pa=' + pa + (pn ? '&pn=' + encodeURIComponent(pn) : '');
+  return [
+    { id: 'A', title: 'A. Exact QR, you type the amount', detail: 'The same data a scan would read.', q },
+    { id: 'B', title: 'B. QR plus ₹1', detail: 'Amount filled in.', q: withParam(q, 'am', '1.00') },
+    { id: 'C', title: 'C. QR plus ₹1 and a note', detail: 'Amount and reason filled in.', q: withParam(withParam(q, 'am', '1.00'), 'tn', 'SpendGate test') },
+    { id: 'D', title: 'D. QR plus ₹1 and a payment ID', detail: 'Amount and a unique transaction ID.', q: withParam(withParam(q, 'am', '1.00'), 'tr', tr) },
+    { id: 'E', title: 'E. Name and UPI ID only', detail: 'Everything else left out; you type the amount.', q: minimal },
+  ];
+}
+function render() {
+  const box = $('#tests'); box.innerHTML = '';
+  if (!raw) { $('#report').hidden = true; return; }
+  variants(raw).forEach(v => {
+    const c = document.createElement('div'); c.className = 'card'; c.dataset.variant = v.id;
+    const t = document.createElement('p'); t.className = 't'; t.textContent = v.title;
+    const d = document.createElement('p'); d.className = 'd'; d.textContent = v.detail;
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'go'; b.textContent = 'Open';
+    b.dataset.url = $('#app').value + '?' + v.q;
+    b.onclick = () => { window.location.href = b.dataset.url; };
+    const sel = document.createElement('select'); sel.setAttribute('aria-label', 'What happened with ' + v.id);
+    OUTCOMES.forEach(o => { const x = document.createElement('option'); x.value = o; x.textContent = o || 'What happened?'; sel.appendChild(x); });
+    const key = appName() + ' ' + v.id;
+    sel.value = results[key] || '';
+    sel.onchange = () => { results[key] = sel.value; report(); };
+    c.append(t, d, b, sel); box.appendChild(c);
+  });
+  report();
+}
+function appName() { return $('#app').selectedOptions[0].textContent; }
+function report() {
+  const lines = Object.keys(results).filter(k => results[k]).sort().map(k => k + ': ' + results[k]);
+  $('#report').hidden = false;
+  $('#report-text').textContent = ['QR: ' + raw].concat(lines).join('\n');
+  $('#report-text').style.whiteSpace = 'pre-wrap';
+}
+function load(file) {
+  const url = URL.createObjectURL(file), im = new Image();
+  im.onload = () => {
+    URL.revokeObjectURL(url);
+    let text = '';
+    [1200, 2400].some(max => {
+      const k = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight));
+      const c = document.createElement('canvas'); c.width = Math.round(im.naturalWidth * k); c.height = Math.round(im.naturalHeight * k);
+      const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(im, 0, 0, c.width, c.height);
+      const r = jsQR(x.getImageData(0, 0, c.width, c.height).data, c.width, c.height, { inversionAttempts: 'attemptBoth' });
+      if (r) text = r.data;
+      return !!r;
+    });
+    if (!text) { $('#status').textContent = 'No QR code found in that photo. Try a closer one.'; return; }
+    const hasId = /^upi:\/\//i.test(text) ? !!new URLSearchParams(text.slice(text.indexOf('?') + 1)).get('pa') : !!parseEMV(text).pa;
+    if (!hasId) { $('#status').textContent = 'That QR code has no UPI ID in it.'; return; }
+    raw = text; results = {}; $('#status').textContent = 'QR read. Try the buttons below, top to bottom.'; render();
+  };
+  im.onerror = () => { URL.revokeObjectURL(url); $('#status').textContent = 'Couldn\'t read that image.'; };
+  im.src = url;
+}
+$('#pick').onclick = () => $('#photo').click();
+$('#photo').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) load(f); });
+$('#app').addEventListener('change', render);
+$('#copy').onclick = () => {
+  const done = m => { $('#copy').textContent = m; setTimeout(() => { $('#copy').textContent = 'Copy results'; }, 1800); };
+  if (!navigator.clipboard) return done('Couldn\'t copy: take a screenshot');
+  navigator.clipboard.writeText($('#report-text').textContent).then(() => done('Copied'), () => done('Couldn\'t copy: take a screenshot'));
+};
+})();
+</script>
+</body>
+</html>

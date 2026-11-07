@@ -42,8 +42,9 @@ async function newPage(browser, opts = {}) {
 }
 const toastText = page => page.locator('.toast').last().textContent({ timeout: 3000 }).catch(() => null);
 const stored = page => page.evaluate(() => JSON.parse(localStorage.getItem('spendgate.v1') || '{"tx":[]}'));
+const openPayee = page => page.evaluate(() => { document.querySelector('#payee-section').open = true; });
 async function fill(page, { vpa, amount, note, cat }) {
-  if (vpa !== undefined) await page.fill('#f-vpa', vpa);
+  if (vpa !== undefined) { await openPayee(page); await page.fill('#f-vpa', vpa); }
   if (amount !== undefined) await page.fill('#f-amount', amount);
   if (note !== undefined) await page.fill('#f-note', note);
   if (cat) await page.click(`#f-cats .chip:text-is("${cat}")`);
@@ -66,10 +67,6 @@ const browser = await (engine === 'webkit' ? webkit : chromium).launch(
     const M = s => S.parseQR(s).merchant;
     return {
       merchant: [M('upi://pay?pa=shop.123@okaxis&pn=Ravi&mc=5812'), M('upi://pay?pa=mom@okhdfcbank&pn=Mom'), M('upi://pay?pa=mom@okhdfcbank&pn=Mom&mc=0000'), M('upi://pay?pa=s@hdfc&sign=abc'), M(EMV), M('ravi@okicici')],
-      homeGpay: S.handoffUrl('gpay', { payee: 'mom@okhdfcbank', amount: 100, note: 'x', merchant: false }),
-      homePhonepe: S.handoffUrl('phonepe', { payee: 'mom@okhdfcbank', amount: 100, note: 'x', merchant: false }),
-      homeUpi: S.handoffUrl('upi', { payee: 'mom@okhdfcbank', amount: 100, note: 'x', merchant: false }),
-      shopGpay: S.handoffUrl('gpay', { payee: 's@ybl', payeeName: '', amount: 5, note: 'x', qrParams: '', merchant: true }),
       basic: P('upi://pay?pa=shop.123@okaxis&pn=Ravi%20Tea%20Stall&mc=5812&cu=INR'),
       upper: P('UPI://pay?pa=a.b@ybl&pn=AB'),
       withAm: P('upi://pay?pa=x@paytm&pn=X&am=120.50&cu=INR'),
@@ -79,16 +76,9 @@ const browser = await (engine === 'webkit' ? webkit : chromium).launch(
       url: P('https://example.com/menu'),
       empty: P(''),
       plainVpa: P('ravi@okicici'),
-      gpay: S.buildPayUrl('gpay', { payee: 'shop.123@okaxis', payeeName: 'Ravi', amount: 45, note: 'chai & snacks', qrParams: 'pa=shop.123@okaxis&pn=Ravi&mc=5812' }),
-      phonepe: S.buildPayUrl('phonepe', { payee: 'a@ybl', payeeName: '', amount: 1200.5, note: 'rent share', qrParams: '' }),
-      paytm: S.buildPayUrl('paytm', { payee: 'a@paytm', payeeName: 'A', amount: 10, note: 'x y', qrParams: '' }),
-      upi: S.buildPayUrl('upi', { payee: 'a@upi', payeeName: '', amount: 1, note: 'n', qrParams: '' }),
-      signed: S.buildPayUrl('gpay', { payee: 'm@hdfc', payeeName: 'Shop', amount: 99, note: 'my note', qrParams: 'pa=m@hdfc&pn=Shop&am=50.00&tn=ORDER123&sign=abc' }),
     };
   }, EMV);
   eq(r.merchant, [true, false, false, true, true, false], 'shop vs personal QR detection');
-  eq([r.homeGpay, r.homePhonepe, r.homeUpi], ['gpay://', 'phonepe://', ''], 'personal payments just open the app');
-  eq(r.shopGpay, 'gpay://upi/pay?pa=s@ybl&am=5.00&cu=INR&tn=x', 'shop payments are pre-filled');
   eq(r.basic, { pa: 'shop.123@okaxis', pn: 'Ravi Tea Stall', am: '' }, 'parse: basic upi QR');
   eq(r.upper, { pa: 'a.b@ybl', pn: 'AB', am: '' }, 'parse: uppercase scheme');
   eq(r.withAm, { pa: 'x@paytm', pn: 'X', am: '120.50' }, 'parse: QR with fixed amount');
@@ -98,11 +88,6 @@ const browser = await (engine === 'webkit' ? webkit : chromium).launch(
   eq(r.url, null, 'parse: website QR rejected');
   eq(r.empty, null, 'parse: empty rejected');
   eq(r.plainVpa, { pa: 'ravi@okicici', pn: '', am: '' }, 'parse: bare UPI ID');
-  eq(r.gpay, 'gpay://upi/pay?pa=shop.123@okaxis&pn=Ravi&mc=5812&am=45.00&cu=INR&tn=chai%20%26%20snacks', 'link: gpay');
-  eq(r.phonepe, 'phonepe://pay?pa=a@ybl&am=1200.50&cu=INR&tn=rent%20share', 'link: phonepe');
-  eq(r.paytm, 'paytmmp://pay?pa=a@paytm&pn=A&am=10.00&cu=INR&tn=x%20y', 'link: paytm');
-  eq(r.upi, 'upi://pay?pa=a@upi&am=1.00&cu=INR&tn=n', 'link: generic upi');
-  ok(r.signed.includes('am=50.00') && r.signed.includes('tn=ORDER123') && r.signed.includes('sign=abc') && !r.signed.includes('my%20note'), 'link: merchant fields left untouched', r.signed);
   ok(errors.length === 0, 'no page errors (parsing)', errors);
   await ctx.close();
 }
@@ -128,7 +113,7 @@ const browser = await (engine === 'webkit' ? webkit : chromium).launch(
   // clear payee
   await page.click('#payee-clear');
   ok(await page.isVisible('#vpa-entry') && await page.isHidden('#payee-box'), 'clear payee restores manual entry');
-  ok(await page.isDisabled('#btn-pay'), 'pay disabled after clearing payee with no UPI ID');
+  ok(await page.isEnabled('#btn-pay'), 'clearing the payee does not block paying: UPI ID is optional');
 
   // QR with amount → locked
   await upload('b.png', await qrPng('upi://pay?pa=shop@ybl&pn=Shop&am=149.00&cu=INR'));
@@ -184,7 +169,9 @@ const browser = await (engine === 'webkit' ? webkit : chromium).launch(
   const { ctx, page, errors } = await newPage(browser);
   ok(await page.isDisabled('#btn-pay') && await page.isDisabled('#btn-logonly'), 'empty form: both buttons disabled');
   eq(await page.textContent('#missing'), 'Still needed: amount, category, reason', 'empty form: lists what is missing');
-  ok(await page.isHidden('#app-pick'), 'empty form: app picker hidden');
+  ok(await page.isVisible('#app-pick') && await page.isVisible('#pay-howto'), 'empty form: payment app and what-happens-next always shown');
+  ok(await page.isHidden('#f-vpa'), 'who you are paying is tucked away as optional');
+  eq(await page.textContent('#btn-pay'), 'Save & open GPay', 'button says what it does');
   for (const bad of ['0', '-5', 'abc', '₹', ' ']) {
     await page.fill('#f-amount', bad);
     ok((await page.textContent('#missing')).includes('amount'), `invalid amount "${bad}" rejected`);
@@ -197,8 +184,9 @@ const browser = await (engine === 'webkit' ? webkit : chromium).launch(
   ok(await page.$eval('#f-cats .chip[aria-pressed="true"]', e => e.textContent) === 'Groceries', 'category chip shows selected');
   await page.click('#f-cats .chip:text-is("Food")');
   eq(await page.$$eval('#f-cats .chip[aria-pressed="true"]', es => es.map(e => e.textContent)), ['Food'], 'only one category selected at a time');
-  ok(await page.isEnabled('#btn-logonly') && await page.isDisabled('#btn-pay'), 'no UPI ID: can log, cannot pay');
-  ok((await page.textContent('#missing')).startsWith('No UPI ID'), 'no UPI ID: explains why pay is disabled');
+  ok(await page.isEnabled('#btn-logonly') && await page.isEnabled('#btn-pay'), 'no scan or UPI ID needed: reason, category and amount are enough');
+  eq(await page.textContent('#missing'), '', 'no UPI ID: nothing reported missing');
+  await openPayee(page);
   for (const bad of ['ravi', 'ravi@', '@ybl', 'ra vi@ybl', 'ravi@1bank']) {
     await page.fill('#f-vpa', bad);
     ok(await page.isDisabled('#btn-pay') && (await page.textContent('#missing')).includes('doesn\'t look right'), `bad UPI ID "${bad}" rejected`);
@@ -207,7 +195,6 @@ const browser = await (engine === 'webkit' ? webkit : chromium).launch(
     await page.fill('#f-vpa', good);
     ok(await page.isEnabled('#btn-pay'), `UPI ID "${good}" accepted`);
   }
-  ok(await page.isVisible('#app-pick'), 'app picker shows once UPI ID typed');
   // log only (with UPI ID)
   await page.click('#btn-logonly');
   let s = await stored(page);
@@ -217,10 +204,8 @@ const browser = await (engine === 'webkit' ? webkit : chromium).launch(
   eq([await page.inputValue('#f-amount'), await page.inputValue('#f-note'), await page.inputValue('#f-vpa')], ['', '', ''], 'form resets after logging');
   ok(await page.$$eval('#f-cats .chip[aria-pressed="true"]', es => es.length) === 0, 'category resets after logging');
   // app choice is remembered
-  await fill(page, { vpa: 'a@ybl' });
   await page.click('#f-apps .chip:text-is("PhonePe")');
   await page.reload();
-  await fill(page, { vpa: 'a@ybl' });
   eq(await page.$eval('#f-apps .chip[aria-pressed="true"]', e => e.textContent), 'PhonePe', 'chosen payment app remembered after reload');
   // persistence
   s = await stored(page);
@@ -245,10 +230,11 @@ const browser = await (engine === 'webkit' ? webkit : chromium).launch(
 
   // A: app opens, user pays, comes back
   await fill(page, { vpa: 'ravi@okaxis', amount: '250', note: 'lunch with Ravi', cat: 'Food' });
-  eq(await page.textContent('#btn-pay'), 'Log, copy UPI ID & open GPay', 'personal UPI ID: button says what will happen');
-  ok(await page.isVisible('#p2p-hint'), 'personal UPI ID: explains the extra step');
+  eq(await page.textContent('#btn-pay'), 'Save & open GPay', 'with a UPI ID: same button');
+  ok((await page.textContent('#pay-howto')).includes('GPay opens on its home screen. Tap Scan'), 'tells you GPay opens blank and what to do');
   await page.click('#f-apps .chip:text-is("PhonePe")');
-  eq(await page.textContent('#btn-pay'), 'Log, copy UPI ID & open PhonePe', 'button follows the chosen app');
+  eq(await page.textContent('#btn-pay'), 'Save & open PhonePe', 'button follows the chosen app');
+  ok((await page.textContent('#pay-howto')).startsWith('PhonePe opens'), 'instructions follow the chosen app');
   await page.click('#f-apps .chip:text-is("GPay")');
   await page.click('#btn-pay');
   let s = await stored(page);
@@ -265,37 +251,34 @@ const browser = await (engine === 'webkit' ? webkit : chromium).launch(
   eq([s.tx[0].status, s.tx[0].amount], ['paid', 260], 'confirm yes: marked paid with corrected amount');
   ok(await page.isHidden('#dlg-confirm'), 'confirm dialog closes');
   ok(await page.isHidden('#pending-banner'), 'no banner when nothing is pending');
-  ok(navs.length === 0 || navs[0] === 'gpay://', 'personal payment opens GPay without pre-filling', navs);
+  ok(navs.length === 0 || navs[0] === 'gpay://', 'opens GPay home, never a pre-filled link', navs);
 
-  // Shop QR: pre-filled hand-off, no extra step
-  await page.setInputFiles('#photo-input', { name: 's.png', mimeType: 'image/png', buffer: await qrPng('upi://pay?pa=shop@okaxis&pn=Shop&mc=5411&cu=INR') });
-  await page.waitForSelector('#payee-box:not([hidden])');
+  // The everyday path: no scan, no UPI ID
   await fill(page, { amount: '70', note: 'groceries', cat: 'Groceries' });
-  eq(await page.textContent('#btn-pay'), 'Log & pay', 'shop QR: one-tap pay');
-  ok(await page.isHidden('#p2p-hint'), 'shop QR: no extra-step note');
-  ok((await stored(page)).tx.length >= 1, 'shop flow ready');
   await page.click('#btn-pay');
-  ok((await stored(page)).tx[0].merchant === true, 'shop payment remembered as a shop payment');
+  ok((await stored(page)).tx[0].status === 'pending' && (await stored(page)).tx[0].payee === '', 'no UPI ID: saved as pending before opening the app');
   await goAway(); await page.waitForTimeout(200); await comeBack(); await page.waitForTimeout(200);
+  eq(await page.textContent('#confirm-text'), '₹70 for "groceries"', 'no UPI ID: confirm prompt reads cleanly');
+  ok(await page.isVisible('#confirm-retry'), 'no UPI ID: can reopen the app from the prompt');
   await page.click('#confirm-yes');
 
-  // Personal QR scanned from a photo (like a GPay "my QR" screen)
-  await page.setInputFiles('#photo-input', { name: 'm.png', mimeType: 'image/png', buffer: await qrPng('upi://pay?pa=mom.01@okhdfcbank&pn=MOM&aid=uGICAgID') });
+  // A shop QR takes the same path as everything else
+  await openPayee(page);
+  await page.setInputFiles('#photo-input', { name: 's.png', mimeType: 'image/png', buffer: await qrPng('upi://pay?pa=shop@okaxis&pn=Shop&mc=5411&cu=INR') });
   await page.waitForSelector('#payee-box:not([hidden])');
-  await fill(page, { amount: '100', note: 'gift', cat: 'Friends & family' });
-  eq(await page.textContent('#btn-pay'), 'Log, copy UPI ID & open GPay', 'personal QR from photo: uses the open-app flow');
-  await page.click('#payee-clear'); await fill(page, { amount: '', note: '' });
+  await page.click('#payee-clear');
+  await fill(page, { amount: '', note: '' });
 
-  // Any UPI app + person: nothing to open, just copy and ask on return
-  await fill(page, { vpa: 'friend@ybl', amount: '30', note: 'split', cat: 'Food' });
-  await page.click('#f-apps .chip:text-is("Any UPI")');
-  eq(await page.textContent('#btn-pay'), 'Log & copy UPI ID', 'Any UPI + person: copy only');
+  // Other UPI app: nothing to open, ask on return
+  await fill(page, { amount: '30', note: 'split', cat: 'Food' });
+  await page.click('#f-apps .chip:text-is("Other UPI app")');
+  eq(await page.textContent('#btn-pay'), 'Save, then pay in your UPI app', 'other app: button');
   await page.click('#btn-pay');
-  ok((await toastText(page) || '').startsWith('UPI ID copied'), 'Any UPI + person: tells you what to do');
+  ok((await toastText(page) || '').startsWith('Saved.'), 'other app: tells you what to do');
   await page.waitForTimeout(3300);
-  ok(await page.isHidden('#dlg-confirm'), 'Any UPI + person: no false "app did not open" prompt');
+  ok(await page.isHidden('#dlg-confirm'), 'other app: no false "app did not open" prompt');
   await goAway(); await page.waitForTimeout(200); await comeBack(); await page.waitForTimeout(200);
-  ok(await page.isVisible('#dlg-confirm'), 'Any UPI + person: asks on return');
+  ok(await page.isVisible('#dlg-confirm'), 'other app: asks on return');
   await page.click('#confirm-yes');
   await page.evaluate(() => { const st = JSON.parse(localStorage.getItem('spendgate.v1')); st.app = 'gpay'; localStorage.setItem('spendgate.v1', JSON.stringify(st)); });
   await page.reload();
@@ -518,7 +501,7 @@ for (const v of [{ width: 320, height: 568, n: 'se' }, { width: 390, height: 844
     await page.screenshot({ path: `${SHOTS}${tag}-pay-filled.png`, fullPage: true });
     await page.click('#pending-banner button');
     const ct = await page.textContent('#confirm-text');
-    ok(!/undefined|NaN|null/.test(ct) && await page.isHidden('#confirm-retry'), `layout ${tag}: confirm for entry without UPI ID reads cleanly`, ct);
+    ok(!/undefined|NaN|null/.test(ct), `layout ${tag}: confirm for entry without UPI ID reads cleanly`, ct);
     await page.screenshot({ path: `${SHOTS}${tag}-confirm.png` });
     ok(errors.length === 0, `no page errors (layout ${tag})`, errors);
     await ctx.close();
@@ -530,7 +513,7 @@ if (engine === 'chromium') {
   const camBrowser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-video-capture=${process.cwd()}/qr.y4m`] });
   const { ctx, page, errors } = await newPage(camBrowser);
   await ctx.grantPermissions(['camera'], { origin: new URL(BASE).origin }); await page.reload();
-  await page.click('#btn-live');
+  await openPayee(page); await page.click('#btn-live');
   await page.waitForSelector('#payee-box:not([hidden])', { timeout: 10000 }).catch(() => {});
   if (process.env.DBG) console.log('CAM', await page.evaluate(() => { const v = document.querySelector('#scan-video'); return { scanner: !document.querySelector('#scanner').hidden, rs: v.readyState, w: v.videoWidth, toasts: [...document.querySelectorAll('.toast')].map(t => t.textContent) }; }), errors);
   eq(await page.textContent('#payee-vpa').catch(() => null), 'camera.test@okaxis', 'live camera: QR scanned');
@@ -540,7 +523,7 @@ if (engine === 'chromium') {
   const plainCam = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
   const p2 = await newPage(plainCam);
   await p2.ctx.grantPermissions(['camera'], { origin: new URL(BASE).origin }); await p2.page.reload();
-  await p2.page.click('#btn-live');
+  await openPayee(p2.page); await p2.page.click('#btn-live');
   await p2.page.waitForSelector('#scanner:not([hidden])', { timeout: 5000 }).catch(() => {});
   ok(await p2.page.isVisible('#scanner'), 'live camera: scanner opens full screen');
   await p2.page.screenshot({ path: `${SHOTS}chromium-scanner.png` });
@@ -553,6 +536,40 @@ if (engine === 'chromium') {
   await ctx.close(); await camBrowser.close();
 } else {
   console.log('(live camera: headless WebKit never answers the camera permission prompt, so it is covered by the Chromium run)');
+}
+
+// ======================= 11. Throwaway hand-off test page =======================
+{
+  const { ctx, page, errors } = await newPage(browser);
+  await page.goto(BASE + 'handoff-test.html');
+  const urls = () => page.$$eval('#tests button.go', bs => bs.map(b => b.dataset.url));
+  const shop = 'upi://pay?ver=01&mode=01&pa=shop%40okaxis&pn=Ravi%20Tea&mc=5411&tr=QR123&cu=INR&sign=ab%2Bc';
+  await page.setInputFiles('#photo', { name: 'q.png', mimeType: 'image/png', buffer: await qrPng(shop) });
+  await page.waitForSelector('#tests button.go');
+  const u = await urls();
+  const q = shop.slice(shop.indexOf('?') + 1);
+  eq(u[0], 'gpay://upi/pay?' + q, 'test page A: the QR passed through untouched');
+  ok(u[1].includes('am=1.00') && u[1].includes('sign=ab%2Bc') && !u[1].includes('tn='), 'test page B: only the amount added', u[1]);
+  ok(u[2].includes('am=1.00') && u[2].includes('tn=SpendGate%20test'), 'test page C: amount and note', u[2]);
+  ok(/tr=SG\d+/.test(u[3]) && !u[3].includes('QR123'), 'test page D: fresh transaction ID replaces the old one', u[3]);
+  eq(u[4], 'gpay://upi/pay?pa=shop@okaxis&pn=Ravi%20Tea', 'test page E: name and UPI ID only');
+  await page.selectOption('#app', 'phonepe://pay');
+  ok((await urls()).every(x => x.startsWith('phonepe://pay?')), 'test page: switching to PhonePe updates every link');
+  await page.selectOption('[data-variant="A"] select', 'Opened filled, payment refused');
+  const rep = await page.textContent('#report-text');
+  ok(rep.includes('QR: ' + shop) && rep.includes('PhonePe A: Opened filled, payment refused'), 'test page: results include the raw QR and the outcome', rep);
+  await page.setInputFiles('#photo', { name: 'e.png', mimeType: 'image/png', buffer: await qrPng(EMV) });
+  await page.waitForFunction(() => document.querySelector('#report-text').textContent.includes('000201'));
+  await page.selectOption('#app', 'gpay://upi/pay');
+  eq((await urls())[0], 'gpay://upi/pay?pa=tea.stall@ybl&pn=RAVI%20TEA', 'test page: bank-format QR handled');
+  await page.setInputFiles('#photo', { name: 'w.png', mimeType: 'image/png', buffer: await qrPng('https://example.com') });
+  await page.waitForFunction(() => document.querySelector('#status').textContent.includes('no UPI ID'));
+  ok(true, 'test page: a QR without a UPI ID is refused');
+  const over = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  ok(over <= 0, 'test page: no sideways scrolling', over);
+  await page.screenshot({ path: `${SHOTS}${engine}-handoff-test.png`, fullPage: true });
+  ok(errors.length === 0, 'no page errors (test page)', errors);
+  await ctx.close();
 }
 
 // ======================= 10. Google Sheet sync =======================
@@ -652,6 +669,8 @@ else {
   ok(await until(() => byNote('racey') && byNote('racey')[2] === 11, 8000), 'sync: edit during an in-flight sync still reaches the sheet');
 
   // restore missing entries on the same phone
+  await tab(page, 'data');
+  ok(await until(async () => (await page.textContent('#sync-status')).startsWith('✓')), 'sync: caught up before the loss test'); // a sync finishing later would re-save the entry
   await page.evaluate(() => { const st = JSON.parse(localStorage.getItem('spendgate.v1')); st.tx = st.tx.filter(t => t.note !== 'movie'); localStorage.setItem('spendgate.v1', JSON.stringify(st)); });
   await page.reload();
   await tab(page, 'data');

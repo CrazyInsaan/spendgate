@@ -110,6 +110,9 @@ dialog h3{margin:0 0 6px;font-size:19px}
 .btnlink{display:flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:12px;padding:13px 16px;font-weight:600;color:var(--ink);text-decoration:none;background:var(--bg)}
 .syncline{font-size:13px;margin:-6px 0 4px;font-weight:600}
 .syncline.warn{color:var(--warn)}
+.howto{font-size:14px;margin:14px 0 0;padding:10px 12px;border-radius:10px;background:var(--accent-soft)}
+#payee-section{margin-top:16px}
+#payee-section summary{font-size:14px;font-weight:600;color:var(--accent);cursor:pointer;padding:6px 0}
 .toast{position:fixed;left:50%;bottom:calc(90px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:14px;z-index:30;max-width:90vw}
 </style>
 </head>
@@ -120,25 +123,8 @@ dialog h3{margin:0 0 6px;font-size:19px}
 <section id="view-pay">
   <h1>Pay</h1>
   <div id="pending-banner" class="banner" hidden></div>
-  <div class="scanbar">
-    <button id="btn-live" type="button">📷 Scan QR</button>
-    <button id="btn-photo" type="button">🖼 QR from photo</button>
-  </div>
-  <input id="photo-input" type="file" accept="image/*" hidden>
-  <p class="hint">Or type a UPI ID below. Leave it empty to just log a payment you made some other way.</p>
-
-  <form id="pay-form" class="card" style="margin-top:12px" autocomplete="off" novalidate>
-    <div id="payee-box" class="payee" hidden>
-      <div class="avatar" id="payee-avatar">?</div>
-      <div class="grow"><div class="name" id="payee-name"></div><div class="vpa" id="payee-vpa"></div></div>
-      <button type="button" class="small ghost" id="payee-clear" aria-label="Clear payee">✕</button>
-    </div>
-    <div id="vpa-entry">
-      <label for="f-vpa">UPI ID (optional)</label>
-      <input id="f-vpa" inputmode="email" placeholder="name@okaxis" autocapitalize="off" spellcheck="false">
-    </div>
-
-    <label for="f-amount">Amount <span class="req">*</span></label>
+  <form id="pay-form" class="card" autocomplete="off" novalidate>
+    <label for="f-amount" style="margin-top:0">Amount <span class="req">*</span></label>
     <input id="f-amount" class="amount" inputmode="decimal" placeholder="₹0">
 
     <label>What is it for? <span class="req">*</span></label>
@@ -147,16 +133,35 @@ dialog h3{margin:0 0 6px;font-size:19px}
     <label for="f-note">Reason, in a few words <span class="req">*</span></label>
     <input id="f-note" maxlength="60" placeholder="e.g. lunch with Ravi">
 
+    <details id="payee-section">
+      <summary>Add who you're paying (optional)</summary>
+      <p class="hint">Only for your records. You still scan or enter them in the payment app.</p>
+      <div class="scanbar" style="margin-top:10px">
+        <button id="btn-live" type="button">📷 Scan QR</button>
+        <button id="btn-photo" type="button">🖼 QR from photo</button>
+      </div>
+      <input id="photo-input" type="file" accept="image/*" hidden>
+      <div id="payee-box" class="payee" hidden>
+        <div class="avatar" id="payee-avatar">?</div>
+        <div class="grow"><div class="name" id="payee-name"></div><div class="vpa" id="payee-vpa"></div></div>
+        <button type="button" class="small ghost" id="payee-clear" aria-label="Clear payee">✕</button>
+      </div>
+      <div id="vpa-entry">
+        <label for="f-vpa">UPI ID</label>
+        <input id="f-vpa" inputmode="email" placeholder="name@okaxis" autocapitalize="off" spellcheck="false">
+      </div>
+    </details>
+
     <div id="app-pick">
       <label>Pay with</label>
       <div class="apps" id="f-apps"></div>
-      <p class="hint" id="p2p-hint" hidden>Paying a person: UPI apps block pre-filled payments to people. SpendGate will save this, copy the UPI ID and open the app. Then scan their QR or paste the UPI ID there and pay.</p>
     </div>
+    <p class="howto" id="pay-howto"></p>
 
     <p class="missing" id="missing"></p>
     <div class="stack">
-      <button type="submit" class="primary" id="btn-pay" disabled>Log &amp; pay</button>
-      <button type="button" id="btn-logonly" disabled>Only log it (already paid / paying elsewhere)</button>
+      <button type="submit" class="primary" id="btn-pay" disabled>Save &amp; open GPay</button>
+      <button type="button" id="btn-logonly" disabled>Already paid: just save it</button>
     </div>
   </form>
 </section>
@@ -288,13 +293,13 @@ dialog h3{margin:0 0 6px;font-size:19px}
 
 // ---------- config ----------
 const CATEGORIES = ['Food', 'Groceries', 'Transport', 'Shopping', 'Bills', 'Entertainment', 'Health', 'Friends & family', 'Personal', 'Other'];
-// iOS cannot pick a UPI app for a bare upi:// link reliably, so each app gets its own scheme.
-// `home` just opens the app: used for payments to people, which UPI apps refuse when pre-filled by another app.
+// Saving first, then paying inside the app, works everywhere: UPI apps refuse many payments pre-filled
+// by another app (Google only supports that for verified merchants), so `home` just opens the app.
 const APPS = [
-  { id: 'gpay',    name: 'GPay',    base: 'gpay://upi/pay', home: 'gpay://' },
-  { id: 'phonepe', name: 'PhonePe', base: 'phonepe://pay',  home: 'phonepe://' },
-  { id: 'paytm',   name: 'Paytm',   base: 'paytmmp://pay',  home: 'paytmmp://' },
-  { id: 'upi',     name: 'Any UPI', base: 'upi://pay',      home: '' },
+  { id: 'gpay',    name: 'GPay',    home: 'gpay://' },
+  { id: 'phonepe', name: 'PhonePe', home: 'phonepe://' },
+  { id: 'paytm',   name: 'Paytm',   home: 'paytmmp://' },
+  { id: 'upi',     name: 'Other UPI app', home: '' },
 ];
 const KEY = 'spendgate.v1';
 
@@ -365,24 +370,6 @@ function parseEMV(text) {
   return { pa, pn: top['59'] || '', am: top['54'] || '', params: null, merchant: true }; // Bharat QR is only issued to merchants
 }
 
-function buildPayUrl(appId, entry) {
-  const app = APPS.find(a => a.id === appId) || APPS[0];
-  // Keep the merchant's original QR fields (some are signed) and only fill in what is missing.
-  const p = new URLSearchParams(entry.qrParams || '');
-  p.set('pa', entry.payee);
-  if (!p.get('pn') && entry.payeeName) p.set('pn', entry.payeeName);
-  if (!p.get('am')) p.set('am', entry.amount.toFixed(2));
-  if (!p.get('cu')) p.set('cu', 'INR');
-  if (!p.get('tn')) p.set('tn', entry.note.slice(0, 50));
-  return app.base + '?' + p.toString().replace(/\+/g, '%20').replace(/%40/g, '@');
-}
-// Where to send the user: a pre-filled payment for shops, or just the app's home screen for people.
-function handoffUrl(appId, entry) {
-  if (entry.merchant) return buildPayUrl(appId, entry);
-  const app = APPS.find(a => a.id === appId) || APPS[0];
-  return app.home;
-}
-
 // ---------- pay form ----------
 const form = $('#pay-form');
 let current = { pa: '', pn: '', qrParams: '', lockedAmount: false, merchant: false };
@@ -420,19 +407,17 @@ function validate() {
   if (!amount) missing.push('amount');
   if (!pickedCat) missing.push('category');
   if (note.length < 2) missing.push('reason');
-  const vpaOk = !!current.pa || (!!vpa && VPA_RE.test(vpa)); // a scanned UPI ID is trusted as-is
+  const vpaOk = !vpa || !!current.pa || VPA_RE.test(vpa); // optional; a scanned UPI ID is trusted as-is
   const baseOk = missing.length === 0;
   $('#btn-logonly').disabled = !baseOk;
   $('#btn-pay').disabled = !(baseOk && vpaOk);
   let msg = missing.length ? 'Still needed: ' + missing.join(', ') : '';
-  if (!msg && !vpa) msg = 'No UPI ID: you can log it, but scan a QR or enter a UPI ID to pay from here.';
-  else if (!msg && !vpaOk) msg = 'That UPI ID doesn\'t look right (it should look like name@bank).';
+  if (!msg && !vpaOk) msg = 'That UPI ID doesn\'t look right (it should look like name@bank).';
   $('#missing').textContent = msg;
-  $('#app-pick').hidden = !vpa;
-  const person = !!vpa && !current.merchant;
-  const app = APPS.find(a => a.id === state.app) || APPS[0];
-  $('#p2p-hint').hidden = !person;
-  $('#btn-pay').textContent = !person ? 'Log & pay' : app.home ? 'Log, copy UPI ID & open ' + app.name : 'Log & copy UPI ID';
+  const app = APPS.find(x => x.id === state.app) || APPS[0];
+  $('#btn-pay').textContent = app.home ? 'Save & open ' + app.name : 'Save, then pay in your UPI app';
+  $('#pay-howto').textContent = (app.home ? app.name + ' opens on its home screen. Tap Scan there' : 'Open your UPI app, scan')
+    + (app.home ? ', scan the QR and pay.' : ' the QR and pay.') + ' Then come back here to confirm.';
   return { amount, note, vpa, ok: baseOk, vpaOk };
 }
 ['#f-amount', '#f-note', '#f-vpa'].forEach(s => $(s).addEventListener('input', validate));
@@ -442,6 +427,7 @@ function setPayee(info) {
   $('#payee-name').textContent = info.pn || info.pa;
   $('#payee-vpa').textContent = info.pa;
   $('#payee-avatar').textContent = (info.pn || info.pa).trim().charAt(0).toUpperCase();
+  $('#payee-section').open = true;
   $('#payee-box').hidden = false;
   $('#vpa-entry').hidden = true;
   const amt = parseAmount(info.am);
@@ -462,6 +448,7 @@ function resetForm() {
   clearPayee();
   $('#f-vpa').value = ''; $('#f-amount').value = ''; $('#f-note').value = '';
   pickedCat = ''; renderPayChips(); validate();
+  $('#payee-section').open = false;
 }
 
 function makeEntry(status) {
@@ -496,9 +483,9 @@ let launchedAt = 0, leftPage = false;
 function openPayment(entry) {
   launchedAt = Date.now(); leftPage = false;
   sessionPending = entry.id;
-  if (!entry.merchant && navigator.clipboard) navigator.clipboard.writeText(entry.payee).catch(() => {});
-  const url = handoffUrl(state.app, entry);
-  if (!url) { toast('UPI ID copied. Open your UPI app and pay ' + inr(entry.amount)); return; } // asked on return
+  if (entry.payee && navigator.clipboard) navigator.clipboard.writeText(entry.payee).catch(() => {});
+  const url = (APPS.find(a => a.id === state.app) || APPS[0]).home;
+  if (!url) { toast('Saved. Open your UPI app and pay ' + inr(entry.amount)); return; } // asked on return
   window.location.href = url;
   // If the page never went to the background, the payment app most likely didn't open.
   setTimeout(() => {
@@ -517,8 +504,7 @@ function askConfirm(id, maybeNotOpened) {
   confirmId = id;
   const who = t.payeeName || t.payee;
   $('#confirm-text').textContent = inr(t.amount) + (who ? ' to ' + who : '') + ' for "' + t.note + '"' +
-    (maybeNotOpened ? '. If the payment app didn\'t open, choose a different app on the Pay screen, or pay manually: the UPI ID has been copied.' : '');
-  $('#confirm-retry').hidden = !t.payee;
+    (maybeNotOpened ? '. If the payment app didn\'t open, open it yourself and pay there.' : '');
   if (maybeNotOpened && t.payee && navigator.clipboard) navigator.clipboard.writeText(t.payee).catch(() => {});
   $('#confirm-amount').value = t.amount;
   const d = $('#dlg-confirm'); if (!d.open) d.showModal();
@@ -909,7 +895,7 @@ function renderAll() {
 }
 
 // expose for testing
-window.__spendgate = { parseQR, buildPayUrl, handoffUrl };
+window.__spendgate = { parseQR };
 
 renderPayChips(); renderApps(); validate(); renderAll();
 scheduleSync(0);
